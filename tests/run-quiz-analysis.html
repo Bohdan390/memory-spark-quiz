@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Quality Analysis</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .controls {
+            padding: 20px;
+            border-bottom: 1px solid #e5e5e5;
+            text-align: center;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            padding: 20px;
+        }
+        .topic-result {
+            margin-bottom: 30px;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .topic-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .topic-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            color: #333;
+        }
+        .topic-content {
+            padding: 20px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #333;
+        }
+        .metric-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        .section h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 1.2rem;
+        }
+        .list-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .list-item:last-child {
+            border-bottom: none;
+        }
+        .strength { color: #28a745; }
+        .weakness { color: #dc3545; }
+        .recommendation { color: #007bff; }
+        .sample-question {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+        .question-type {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .question-text {
+            margin: 10px 0 5px 0;
+            font-weight: 500;
+        }
+        .answer-text {
+            color: #666;
+            font-style: italic;
+        }
+        .summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .summary h2 {
+            margin: 0 0 20px 0;
+        }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .summary-stat {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        .summary-stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .console-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧪 Quiz Quality Analysis</h1>
+            <p>Comprehensive testing of quiz generation across Journal, Book Notes, and Business content</p>
+        </div>
+
+        <div class="controls">
+            <button id="runAnalysis" class="btn">🚀 Run Quiz Quality Analysis</button>
+            <p style="margin-top: 10px; color: #666;">
+                This will test quiz generation on 3000+ words of content across different topics
+            </p>
+        </div>
+
+        <div id="results" class="results">
+            <div class="loading" style="display: none;" id="loading">
+                <div class="spinner"></div>
+                <p>Analyzing quiz generation quality...</p>
+            </div>
+        </div>
+
+        <div class="console-output" id="console" style="display: none;"></div>
+    </div>
+
+    <script type="module">
+        // Test content (embedded for standalone testing)
+        const testContent = {
+            journal: {
+                title: "Personal Growth and Mindfulness Journey",
+                content: `Today marks the beginning of my intentional journey toward mindfulness and personal growth. I've been reflecting on the concept of presence and how rarely I actually experience it in my daily life. The morning meditation session revealed something profound about my relationship with anxiety and anticipation.
+
+The practice of mindful breathing has become increasingly important to me. When I focus on the sensation of air entering and leaving my nostrils, I notice how my mind immediately begins to wander. Thoughts about upcoming meetings, unfinished projects, and future uncertainties flood my consciousness. This observation itself is valuable - it shows me how much of my mental energy is spent on things that haven't happened yet.
+
+I've been reading about neuroplasticity and how our brains can literally rewire themselves through consistent practice. The idea that I can reshape my neural pathways through meditation and mindful awareness is both exciting and daunting. It requires patience and self-compassion, two qualities I'm still developing.
+
+The concept of emotional regulation has become central to my growth. Instead of being overwhelmed by difficult emotions, I'm learning to observe them with curiosity. When anger arises, I try to notice where I feel it in my body. Is it a tightness in my chest? A clenching in my jaw? This somatic awareness helps me respond rather than react.
+
+Gratitude practice has transformed my perspective on daily experiences. Even mundane moments - like washing dishes or walking to the store - become opportunities for appreciation. I've started noticing the intricate patterns of light filtering through leaves, the complex symphony of urban sounds, and the simple pleasure of warm water on my hands.`
+            },
+            bookNotes: {
+                title: "Atomic Habits by James Clear - Key Insights",
+                content: `James Clear's "Atomic Habits" presents a comprehensive framework for understanding how small changes compound into remarkable results over time. The book's central thesis is that habits are the compound interest of self-improvement - getting 1% better every day leads to being 37 times better after one year.
+
+The Four Laws of Behavior Change form the book's practical foundation. First, make it obvious by designing your environment to prompt desired behaviors. This involves habit stacking, where you attach new habits to existing ones, and environmental design that makes good choices easier. For example, placing a book on your pillow ensures you'll see it before bed.
+
+The second law, make it attractive, leverages the brain's dopamine-driven reward system. Clear explains how dopamine is released not just when we experience pleasure, but when we anticipate it. This means we can use temptation bundling - pairing actions we need to do with actions we want to do. A practical example is only watching Netflix while exercising.
+
+Make it easy, the third law, emphasizes reducing friction for good habits and increasing it for bad ones. The Two-Minute Rule suggests starting new habits with versions that take less than two minutes to complete. Instead of "read 30 pages," start with "read one page." This creates momentum and establishes the identity of being someone who reads.`
+            },
+            businessNotes: {
+                title: "Strategic Planning and Market Analysis Framework",
+                content: `Strategic planning in today's volatile business environment requires a comprehensive understanding of market dynamics, competitive positioning, and organizational capabilities. The traditional five-year strategic plan has become increasingly obsolete, replaced by agile planning methodologies that emphasize adaptability and rapid response to market changes.
+
+The SWOT analysis framework remains fundamental but must be enhanced with dynamic market intelligence. Strengths and weaknesses should be evaluated not just internally, but relative to competitors and market standards. Opportunities and threats require continuous monitoring through robust market research and competitive intelligence systems.
+
+Porter's Five Forces model provides essential insight into industry attractiveness and competitive intensity. The threat of new entrants depends on barriers to entry, including capital requirements, regulatory constraints, and established customer loyalty. Supplier bargaining power varies with supplier concentration, switching costs, and availability of substitutes.`
+            }
+        };
+
+        // Simple quiz generation function (mimicking the app's logic)
+        function generateQuizFromContent(content) {
+            const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+            const words = content.toLowerCase().split(/\s+/);
+            const keyTerms = words.filter(word => 
+                word.length > 4 && 
+                !['this', 'that', 'they', 'them', 'then', 'than', 'when', 'where', 'what', 'which', 'would', 'could', 'should'].includes(word)
+            );
+
+            const questions = [];
+
+            // Generate fill-in-blank questions
+            sentences.slice(0, 3).forEach((sentence, index) => {
+                const sentenceWords = sentence.trim().split(/\s+/);
+                const importantWordIndex = sentenceWords.findIndex(word => 
+                    keyTerms.includes(word.toLowerCase().replace(/[^\w]/g, ''))
+                );
+                
+                if (importantWordIndex > 0) {
+                    const targetWord = sentenceWords[importantWordIndex];
+                    const questionText = sentenceWords.map((word, i) => 
+                        i === importantWordIndex ? '____' : word
+                    ).join(' ');
+                    
+                    questions.push({
+                        id: `q-${Date.now()}-${index}`,
+                        question: `Fill in the blank: ${questionText.trim()}`,
+                        answer: targetWord.replace(/[^\w]/g, ''),
+                        type: 'fillInBlank'
+                    });
+                }
+            });
+
+            // Generate short answer questions
+            if (sentences.length > 0) {
+                questions.push({
+                    id: `q-${Date.now()}-short`,
+                    question: `What is the main concept discussed in this content?`,
+                    answer: sentences[0].substring(0, 100) + '...',
+                    type: 'shortAnswer'
+                });
+            }
+
+            return questions;
+        }
+
+        // Analysis functions
+        function analyzeQuizQuality(topic, questions, content) {
+            const metrics = {
+                relevance: calculateRelevance(questions, content),
+                difficulty: calculateDifficulty(questions),
+                variety: calculateVariety(questions),
+                clarity: calculateClarity(questions),
+                coverage: calculateCoverage(questions, content)
+            };
+            
+            metrics.overall = (metrics.relevance + metrics.difficulty + metrics.variety + metrics.clarity + metrics.coverage) / 5;
+
+            const strengths = [];
+            const weaknesses = [];
+            const recommendations = [];
+
+            if (metrics.relevance >= 7) strengths.push('High relevance to source content');
+            else {
+                weaknesses.push('Questions not well-aligned with content');
+                recommendations.push('Improve content analysis to identify key concepts');
+            }
+
+            if (metrics.variety >= 7) strengths.push('Good variety in question types');
+            else {
+                weaknesses.push('Limited question type diversity');
+                recommendations.push('Implement more question type generators');
+            }
+
+            if (metrics.coverage >= 7) strengths.push('Comprehensive content coverage');
+            else {
+                weaknesses.push('Narrow content coverage');
+                recommendations.push('Analyze content structure to identify all key topics');
+            }
+
+            return {
+                topic,
+                questionsGenerated: questions.length,
+                metrics,
+                strengths,
+                weaknesses,
+                recommendations,
+                sampleQuestions: questions.slice(0, 3)
+            };
+        }
+
+        function calculateRelevance(questions, content) {
+            const contentWords = content.toLowerCase().split(/\s+/);
+            let relevantQuestions = 0;
+            
+            questions.forEach(q => {
+                const questionWords = q.question.toLowerCase().split(/\s+/);
+                const answerWords = q.answer.toLowerCase().split(/\s+/);
+                
+                const questionRelevance = questionWords.filter(word => 
+                    word.length > 3 && contentWords.includes(word)
+                ).length / questionWords.length;
+                
+                if (questionRelevance > 0.3) relevantQuestions++;
+            });
+
+            return questions.length > 0 ? (relevantQuestions / questions.length) * 10 : 0;
+        }
+
+        function calculateDifficulty(questions) {
+            let totalDifficulty = 0;
+            
+            questions.forEach(q => {
+                let difficulty = 5;
+                if (q.question.length > 100) difficulty += 1;
+                if (q.type === 'shortAnswer' && q.answer.length > 50) difficulty += 1;
+                totalDifficulty += Math.min(difficulty, 10);
+            });
+
+            return questions.length > 0 ? totalDifficulty / questions.length : 5;
+        }
+
+        function calculateVariety(questions) {
+            const types = new Set(questions.map(q => q.type));
+            return Math.min(types.size * 3.33, 10);
+        }
+
+        function calculateClarity(questions) {
+            let clarityScore = 0;
+            
+            questions.forEach(q => {
+                let score = 10;
+                if (!q.question.endsWith('?') && !q.question.includes('Fill in')) score -= 1;
+                if (q.question.length < 10) score -= 2;
+                if (q.answer.length < 2) score -= 2;
+                clarityScore += Math.max(score, 0);
+            });
+
+            return questions.length > 0 ? clarityScore / questions.length : 0;
+        }
+
+        function calculateCoverage(questions, content) {
+            const contentSections = content.split(/\n\s*\n/);
+            let coveredSections = 0;
+            
+            contentSections.forEach(section => {
+                const sectionWords = section.toLowerCase().split(/\s+/);
+                const hasQuestionFromSection = questions.some(q => {
+                    const questionWords = q.question.toLowerCase().split(/\s+/);
+                    const questionOverlap = questionWords.filter(word => 
+                        word.length > 4 && sectionWords.includes(word)
+                    ).length;
+                    return questionOverlap > 0;
+                });
+                
+                if (hasQuestionFromSection) coveredSections++;
+            });
+
+            return contentSections.length > 0 ? (coveredSections / contentSections.length) * 10 : 0;
+        }
+
+        // UI functions
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+
+            results.forEach(result => {
+                const topicDiv = document.createElement('div');
+                topicDiv.className = 'topic-result';
+                
+                topicDiv.innerHTML = `
+                    <div class="topic-header">
+                        <h2 class="topic-title">${result.topic.charAt(0).toUpperCase() + result.topic.slice(1)} Analysis</h2>
+                    </div>
+                    <div class="topic-content">
+                        <div class="metrics-grid">
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.overall.toFixed(1)}</div>
+                                <div class="metric-label">Overall Score</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.relevance.toFixed(1)}</div>
+                                <div class="metric-label">Relevance</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.difficulty.toFixed(1)}</div>
+                                <div class="metric-label">Difficulty</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.variety.toFixed(1)}</div>
+                                <div class="metric-label">Variety</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.clarity.toFixed(1)}</div>
+                                <div class="metric-label">Clarity</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value">${result.metrics.coverage.toFixed(1)}</div>
+                                <div class="metric-label">Coverage</div>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h3>✅ Strengths</h3>
+                            ${result.strengths.map(s => `<div class="list-item strength">• ${s}</div>`).join('')}
+                        </div>
+
+                        <div class="section">
+                            <h3>❌ Weaknesses</h3>
+                            ${result.weaknesses.map(w => `<div class="list-item weakness">• ${w}</div>`).join('')}
+                        </div>
+
+                        <div class="section">
+                            <h3>💡 Recommendations</h3>
+                            ${result.recommendations.map(r => `<div class="list-item recommendation">• ${r}</div>`).join('')}
+                        </div>
+
+                        <div class="section">
+                            <h3>📝 Sample Questions</h3>
+                            ${result.sampleQuestions.map(q => `
+                                <div class="sample-question">
+                                    <span class="question-type">${q.type}</span>
+                                    <div class="question-text">${q.question}</div>
+                                    <div class="answer-text">Answer: ${q.answer}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                resultsDiv.appendChild(topicDiv);
+            });
+
+            // Add summary
+            const avgScore = results.reduce((sum, r) => sum + r.metrics.overall, 0) / results.length;
+            const totalQuestions = results.reduce((sum, r) => sum + r.questionsGenerated, 0);
+            
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'summary';
+            summaryDiv.innerHTML = `
+                <h2>📊 Analysis Summary</h2>
+                <div class="summary-stats">
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${totalQuestions}</div>
+                        <div>Total Questions</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${avgScore.toFixed(1)}/10</div>
+                        <div>Average Quality</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${results.length}</div>
+                        <div>Topics Analyzed</div>
+                    </div>
+                </div>
+            `;
+            
+            resultsDiv.appendChild(summaryDiv);
+        }
+
+        // Main analysis function
+        async function runAnalysis() {
+            const button = document.getElementById('runAnalysis');
+            const loading = document.getElementById('loading');
+            const consoleDiv = document.getElementById('console');
+            
+            button.disabled = true;
+            button.textContent = 'Analyzing...';
+            loading.style.display = 'block';
+            consoleDiv.style.display = 'block';
+            consoleDiv.textContent = '🧪 Starting quiz quality analysis...\n';
+
+            const results = [];
+
+            for (const [topicKey, content] of Object.entries(testContent)) {
+                consoleDiv.textContent += `\n📝 Analyzing ${topicKey} content...\n`;
+                
+                try {
+                    const questions = generateQuizFromContent(content.content);
+                    const analysis = analyzeQuizQuality(topicKey, questions, content.content);
+                    results.push(analysis);
+                    
+                    consoleDiv.textContent += `✅ ${topicKey}: ${questions.length} questions generated, score: ${analysis.metrics.overall.toFixed(1)}/10\n`;
+                } catch (error) {
+                    consoleDiv.textContent += `❌ Error analyzing ${topicKey}: ${error.message}\n`;
+                }
+            }
+
+            consoleDiv.textContent += '\n🎉 Analysis complete!\n';
+            
+            displayResults(results);
+            
+            button.disabled = false;
+            button.textContent = '🚀 Run Quiz Quality Analysis';
+            loading.style.display = 'none';
+        }
+
+        // Event listeners
+        document.getElementById('runAnalysis').addEventListener('click', runAnalysis);
+    </script>
+</body>
+</html> 
