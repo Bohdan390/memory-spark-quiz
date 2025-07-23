@@ -94,6 +94,5 @@ create table if not exists quiz_results (
   "date" timestamptz,
   "correctAnswers" int,
   "totalQuestions" int,
-  sessionId text,
   "questionResults" jsonb
 ); 

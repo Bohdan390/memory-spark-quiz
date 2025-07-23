@@ -21,6 +21,7 @@ const QuizManagementPage: React.FC = () => {
     quizResults, 
     getFolderQuestions, 
     updateQuestion, 
+    createQuestion,
     deleteQuestion, 
     addQuestion 
   } = useApp();
@@ -76,25 +77,35 @@ const QuizManagementPage: React.FC = () => {
     setEditedQuestion(question);
   };
   
-  const handleSaveQuestion = () => {
+  const handleSaveQuestion = async () => {
     if (!editingQuestion) return;
     
-    updateQuestion(editingQuestion, editedQuestion);
-    
-    // Update local state
-    setQuestions(prev => prev.map(q => 
-      q.id === editingQuestion 
-        ? { ...q, ...editedQuestion }
-        : q
-    ));
-    
-    setEditingQuestion(null);
-    setEditedQuestion({});
-    
-    toast({
-      title: 'Question Updated',
-      description: 'Your question has been saved successfully.'
-    });
+    try {
+      if (!editedQuestion.id?.includes('manual')) {
+        await updateQuestion(editingQuestion, editedQuestion);
+      } else {
+        await createQuestion(folderId as string, editedQuestion as QuizQuestion);
+      }
+      setQuestions(prev => prev.map(q => 
+          q.id === editingQuestion 
+          ? { ...q, ...editedQuestion }
+          : q
+      ));
+      setEditingQuestion(null);
+      setEditedQuestion({});
+      
+      toast({
+        title: 'Question Updated',
+        description: 'Your question has been saved successfully.'
+      });
+    } catch (error) {
+      console.error('Failed to update question:', error);
+      toast({
+        title: 'Update Failed',
+        description: 'Failed to update the question. Please try again.',
+        variant: 'destructive'
+      });
+    }
   };
   
   const handleCancelEdit = () => {
@@ -128,7 +139,7 @@ const QuizManagementPage: React.FC = () => {
       nextReviewDate: new Date(),
     };
     
-    const newQuestion = addQuestion(folderId, questionData);
+    const newQuestion = addQuestion(folderId, questionData as QuizQuestion);
     
     // Update local state
     setQuestions(prev => [...prev, newQuestion]);
@@ -198,17 +209,17 @@ const QuizManagementPage: React.FC = () => {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleAddNewQuestion} variant="outline">
+              {/* <Button onClick={handleAddNewQuestion} variant="outline">
                 <Plus className="mr-2 h-4 w-4" /> Add Question
-              </Button>
-              <Button 
+              </Button> */}
+              {/* <Button 
                 onClick={handleGenerateQuestions}
                 disabled={isGeneratingQuiz || folder.notes.length === 0}
                 className="bg-memoquiz-purple hover:bg-memoquiz-purple/90"
               >
                 <Brain className="mr-2 h-4 w-4" />
                 {isGeneratingQuiz ? 'Generating...' : 'Generate Questions'}
-              </Button>
+              </Button> */}
             </div>
           </div>
           
@@ -345,9 +356,6 @@ const QuizManagementPage: React.FC = () => {
                       <div className="flex justify-between items-start">
                         <div>
                           <h3 className="font-semibold">Quiz #{folderQuizResults.length - index}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {result.date.toLocaleDateString()} at {result.date.toLocaleTimeString()}
-                          </p>
                         </div>
                         <div className="text-right">
                           <div className="text-2xl font-bold">

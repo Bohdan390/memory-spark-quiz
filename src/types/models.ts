@@ -84,7 +84,8 @@ export interface QuizQuestion {
   folder_id?: string;
   note_id?: string;
   user_id: string;
-  
+  question: string;
+  answer: string;
   // Core Question Data
   type: QuestionType;
   

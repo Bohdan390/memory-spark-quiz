@@ -6,7 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import QuizResults from '@/components/quiz/QuizResults';
 import { Skeleton } from '@/components/ui/skeleton';
-import { QuizQuestion, QuizResult, QuestionResult } from '@/types/models';
+import { QuizQuestion, QuizResult } from '@/types/models';
 
 const QuizPage: React.FC = () => {
   const { folderId } = useParams<{ folderId: string }>();
@@ -30,22 +30,6 @@ const QuizPage: React.FC = () => {
       return;
     }
 
-    const loadQuiz = async () => {
-      setIsLoading(true);
-      try {
-        const quizQuestions = await generateQuiz(folderId || '');
-        setQuestions(quizQuestions);
-        
-        if (quizQuestions.length === 0) {
-          navigate(`/folders/${folderId}`);
-        }
-      } catch (error) {
-        console.error('Failed to generate quiz:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    // Fix: folderId can be undefined, but getQuizes expects string
     if (folderId) {
       const quizes = getQuizes(folderId);
       setQuestions(quizes)
@@ -68,17 +52,18 @@ const QuizPage: React.FC = () => {
     }[]) => {
 
     const correctAnswers = questionResults.filter(r => r.correct).length;
-    quizResults.correctAnswers = correctAnswers;
-    quizResults.date = new Date();
-    quizResults.folder_id = folderId;
-    quizResults.totalQuestions = questions.length;
-    quizResults.user_id = questions[0].user_id;
-    quizResults.questionResults = questionResults;
-    setQuizResults(quizResults);
+    const result: Omit<QuizResult, 'id' | 'user_id'> = {
+      folder_id: folderId!,
+      correctAnswers,
+      totalQuestions: questions.length,
+      date: new Date(),
+      questionResults
+    };
     
+    setQuizResults(result);
+    saveQuizResult(result);
     setQuizFinished(true);
   };
-  console.log(questions)
   
   const onAnswer = () => {
 

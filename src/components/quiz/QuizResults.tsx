@@ -31,7 +31,6 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizResults, questions, folde
       return "You might need to review this material more carefully.";
     }
   };
-  console.log(questions, quizResults)
   return (
     <Card className="w-full">
       <CardHeader>

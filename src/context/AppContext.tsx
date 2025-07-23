@@ -32,7 +32,8 @@ interface AppContextType {
   
   // Quiz management functions
   getFolderQuestions: (folderId: string) => QuizQuestion[];
-  updateQuestion: (questionId: string, data: Partial<QuizQuestion>) => void;
+  updateQuestion: (questionId: string, data: Partial<QuizQuestion>) => Promise<void>;
+  createQuestion: (folderId: string, data: QuizQuestion) => Promise<void>;
   deleteQuestion: (questionId: string) => void;
   addQuestion: (folderId: string, question: Omit<QuizQuestion, 'id' | 'user_id'>) => QuizQuestion;
 
@@ -64,7 +65,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [currentQuiz, setCurrentQuiz] = useState<QuizQuestion[] | null>(null);
-  const [quizResults, setQuizResults] = useState<QuizQuestion[]>([]);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState<boolean>(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [folderQuestions, setFolderQuestions] = useState<QuizQuestion | null>(null);
@@ -90,7 +92,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const savedFolders = folderResults.data;
       // const savedFolders = localStorage.getItem('memoquiz-folders');
       // const savedQuizResults = localStorage.getItem('memoquiz-quiz-results');
-      const quizResults = await supabase
+      const quizQuestions = await supabase
       .from('quiz_questions')
       .select('*');
 
@@ -100,7 +102,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const saveNotes = noteResults.data
 
-      const saveQuizResults = quizResults.data
+      const saveQuizQuestions = quizQuestions.data
       // Removed broken supabase code; setQuestions is not defined and supabase call is not awaited.
       // If you want to load quiz questions from localStorage, you could do it here.
       if (savedFolders) {
@@ -118,21 +120,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             })),
           }
         });
-        console.log(parsedFolders)
         setFolders(parsedFolders);
       }
 
-      if (saveQuizResults) {
-        const parsedResults = saveQuizResults.map((r: any) => ({
+      if (saveQuizQuestions) {
+        const parsedQuestions = saveQuizQuestions.map((r: any) => ({
           ...r,
-          date: new Date(r.date),
         }));
-        setQuizResults(parsedResults);
+        setQuizQuestions(parsedQuestions);
       }
     } catch (error) {
       console.error('Error loading local data:', error);
       setFolders([]);
-      setQuizResults([]);
+      setQuizQuestions([]);
     }
   }, []);
 
@@ -145,15 +145,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // Save quiz results to localStorage
-  const saveQuizResults = useCallback((results: QuizResult[]) => {
-    try {
-      localStorage.setItem('memoquiz-quiz-results', JSON.stringify(results));
-    } catch (error) {
-      console.error('Error saving quiz results:', error);
-    }
-  }, []);
-
   useEffect(() => {
     loadLocalData();
   }, [loadLocalData]);
@@ -161,10 +152,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     saveLocalData(folders);
   }, [folders, saveLocalData]);
-
-  useEffect(() => {
-    saveQuizResults(quizResults);
-  }, [quizResults, saveQuizResults]);
 
   // --- FOLDER CRUD WITH SUPABASE ---
   const createFolder = async (name: string, description?: string): Promise<Folder | null> => {
@@ -198,7 +185,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const getQuizes = (folderId: string) => quizResults.filter(_q => _q.folder_id === folderId)
+  const getQuizes = (folderId: string) => quizQuestions.filter(_q => _q.folder_id === folderId)
 
   const getFolder = (id: string) => folders.find(folder => folder.id === id);
 
@@ -371,7 +358,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         return [];
       }
-
+      await supabase.from('quiz_questions').delete().eq('folder_id', folderId);
       const noteContents = folder.notes.map(note => ({
         id: note.id,
         title: note.title,
@@ -484,7 +471,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           confidence: 3
         };
       });
-      setQuizResults(questionsWithMeta);
+      setQuizQuestions(questionsWithMeta);
       // Save to Supabase (use upsert to avoid 409 conflict)
       const { error } = await supabase
         .from('quiz_questions')
@@ -513,11 +500,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const newResult: QuizResult = {
         ...result,
-        id: `result-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        date: new Date(),
         user_id: MOCK_USER_ID,
       };
 
-      setQuizResults(prev => [newResult, ...prev]);
+      quizResults.push(newResult);
+      // Save to local state first (immediate UI update)
+      setQuizResults(prev => prev); // No-op, or update another state if needed
+
+      // Save to Supabase
+      console.log('Saving quiz result to Supabase:', newResult);
+      const { error } = await supabase
+        .from('quiz_results')
+        .insert({
+          folder_id: newResult.folder_id,
+          user_id: newResult.user_id,
+          date: newResult.date.toISOString(),
+          correctAnswers: newResult.correctAnswers,
+          totalQuestions: newResult.totalQuestions,
+          questionResults: newResult.questionResults || []
+        });
+
+      if (error) {
+        console.error('Error saving quiz result to Supabase:', error);
+        throw error;
+      }
+
+      console.log('Quiz result saved successfully to Supabase');
       
       toast({ 
         title: 'Quiz completed', 
@@ -566,25 +575,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+
+
   // Quiz management functions
   const getFolderQuestions = (folderId: string): QuizQuestion[] => {
-    const stored = localStorage.getItem(`quiz-questions-${folderId}`);
-    if (stored) {
-      const questions = JSON.parse(stored);
-      return questions.map((q: any) => ({
-        ...q,
-        nextReviewDate: new Date(q.nextReviewDate),
-        lastReviewed: q.lastReviewed ? new Date(q.lastReviewed) : null,
-      }));
-    }
-    return [];
+    return quizQuestions.map((q: any) => ({
+      ...q,
+      nextReviewDate: new Date(q.nextReviewDate),
+      lastReviewed: q.lastReviewed ? new Date(q.lastReviewed) : null,
+    }));
   };
 
-  const updateQuestion = (questionId: string, data: Partial<QuizQuestion>): void => {
+  const createQuestion = async (folderId: string, data: QuizQuestion): Promise<void> => {
+    // Ensure all required fields for QuizQuestion are present and not undefined
+    console.log('Creating question in Supabase:', data);
+    try {
+      const { error } = await supabase
+        .from('quiz_questions')
+        .insert([{...data, id: undefined, folder_id: folderId}]);
+
+      if (error) {
+        console.error('Error creating question in Supabase:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Failed to create question in Supabase:', error);
+    }
+
+    const questions = getFolderQuestions(folderId);
+    const updatedQuestions = [...questions, data];
+    setQuizQuestions(updatedQuestions);
+    // Update current quiz if it's loaded
+    if (currentQuiz) {
+      setCurrentQuiz([...currentQuiz, data]);
+    }
+  }
+
+  const updateQuestion = async (questionId: string, data: Partial<QuizQuestion>): Promise<void> => {
     // Find which folder this question belongs to
     const allFolders = folders;
     let targetFolderId = '';
-    
     for (const folder of allFolders) {
       const questions = getFolderQuestions(folder.id);
       if (questions.find(q => q.id === questionId)) {
@@ -597,16 +627,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     const questions = getFolderQuestions(targetFolderId);
     const updatedQuestions = questions.map(q => 
-      q.id === questionId ? { ...q, ...data } : q
+      q.id === questionId ? { ...q, ...data, updatedAt: new Date() } : q
     );
     
-    localStorage.setItem(`quiz-questions-${targetFolderId}`, JSON.stringify(updatedQuestions));
-    
+
+    setQuizQuestions(updatedQuestions);
     // Update current quiz if it's loaded
     if (currentQuiz) {
       setCurrentQuiz(currentQuiz.map(q => 
-        q.id === questionId ? { ...q, ...data } : q
+        q.id === questionId ? { ...q, ...data, updatedAt: new Date() } : q
       ));
+    }
+
+    // Save to Supabase
+    console.log('Updating question in Supabase:', data);
+    try {
+      const { error } = await supabase
+        .from('quiz_questions')
+        .update({
+          ...data,
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', questionId);
+
+      if (error) {
+        console.error('Error updating question in Supabase:', error);
+        throw error;
+      }
+      
+      console.log('Question updated successfully in Supabase');
+    } catch (error) {
+      console.error('Failed to update question in Supabase:', error);
     }
   };
 
@@ -709,6 +760,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Quiz management functions
     getFolderQuestions,
     updateQuestion,
+    createQuestion,
     deleteQuestion,
     addQuestion,
   };
