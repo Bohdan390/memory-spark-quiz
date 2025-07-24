@@ -22,7 +22,9 @@ import {
   Check,
   ArrowRight,
   Shuffle,
-  Timer
+  Timer,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -77,7 +79,10 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const [questionIndex, setQuestionIndex] = useState(0);
   const [question, setQuestion] = useState<QuizQuestion>(questions[0]);
   const [showResultModal, setShowResultModal] = useState(false);
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [quizResult, setQuizResult] = useState<Partial<QuizResult>>({});
+  const [showReviewPanel, setShowReviewPanel] = useState(false);
 
   useEffect(() => {
     setStartTime(Date.now());
@@ -101,44 +106,63 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       confidence,
       difficulty
     };
+    
+    // Determine if answer is correct based on question type
     let correct = false;
-    if ('answer' in question && selectedOptions[0] === question.answer) {
-      correct = true;
+    let userAnswerText = '';
+    
+    if (question.type === 'multipleChoice') {
+      correct = selectedOptions[0] === question.answer;
+      userAnswerText = selectedOptions[0] || '';
+    } else if (question.type === 'fillInBlank' || question.type === 'typing' || question.type === 'reversedCard') {
+      correct = userAnswer.toLowerCase().trim() === question.answer.toLowerCase().trim();
+      userAnswerText = userAnswer;
+    } else if (question.type === 'trueFalse') {
+      correct = userAnswer === question.answer.toLowerCase();
+      userAnswerText = userAnswer;
+    } else if (question.type === 'cloze') {
+      const blanks = question.blanks || [];
+      correct = blanks.every((blank, index) => 
+        selectedOptions[index]?.toLowerCase().trim() === blank.toLowerCase().trim()
+      );
+      userAnswerText = selectedOptions.join(', ');
+    } else if (question.type === 'ordering') {
+      correct = orderedItems.every((item, index) => 
+        item === question.correctOrder?.[index]
+      );
+      userAnswerText = orderedItems.join(' → ');
     }
+    
     const newQuestionResult: QuestionResult = {
       questionId: question.id,
       correct,
-      userAnswer: selectedOptions[0],
+      userAnswer: userAnswerText,
       responseTime,
       confidence,
       difficulty
     };
-    questionResults.push(newQuestionResult)
+    
+    questionResults.push(newQuestionResult);
+    
+    // Show immediate feedback
+    setIsCorrect(correct);
+    setShowFeedback(true);
+    setIsAnswered(true);
+    setShowExplanation(true);
+    onAnswer(result);
+    
+    // Auto-advance after showing feedback
     setTimeout(() => {
-      console.log(questionResults, "123")
+      setShowFeedback(false);
+      setIsCorrect(null);
       if (questionIndex < questions.length - 1) {
-        setQuestion(questions[questionIndex + 1])
+        setQuestion(questions[questionIndex + 1]);
         setQuestionIndex(questionIndex + 1);
       } else {
         onFinish(questionResults);
         questionResults = [];
-        // if (quizResult) {
-        //   quizResult.correctAnswers = questionResults.filter(
-        //     (_q: any) => _q.correct
-        //   ).length;
-        //   quizResult.date = new Date();
-        //   quizResult.folder_id = question.folder_id;
-        //   quizResult.totalQuestions = questions.length;
-        //   quizResult.user_id = question.user_id;
-        //   quizResult.questionResults = questionResults;
-        // }
-        // console.log(quizResult)
-        // setShowResultModal(true);
       }
-    }, 5000)
-    setIsAnswered(true);
-    setShowExplanation(true);
-    onAnswer(result);
+    }, 3000); // Show feedback for 3 seconds
   };
   const renderQuestionByType = () => {
     switch (question.type) {
@@ -693,6 +717,26 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       default: return <Brain className="w-4 h-4" />;
     }
   };
+
+  // Get current quiz progress and results
+  const getQuizProgress = () => {
+    const completedQuestions = questionResults.length;
+    const correctAnswers = questionResults.filter(r => r.correct).length;
+    const accuracy = completedQuestions > 0 ? Math.round((correctAnswers / completedQuestions) * 100) : 0;
+    
+    return {
+      completedQuestions,
+      correctAnswers,
+      accuracy,
+      totalQuestions: questions.length,
+      currentQuestion: questionIndex + 1
+    };
+  };
+
+  // Get question result by index
+  const getQuestionResult = (index: number) => {
+    return questionResults[index] || null;
+  };
   
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -730,7 +774,143 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         </div>
       </CardHeader>
       
+      {/* Quiz Progress and Review Panel */}
+      <div className="px-6 py-3 border-b bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="text-sm">
+              <span className="font-medium">Question {questionIndex + 1}</span>
+              <span className="text-muted-foreground"> of {questions.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="text-sm">
+                <span className="font-medium text-green-600">{getQuizProgress().correctAnswers}</span>
+                <span className="text-muted-foreground"> correct</span>
+              </div>
+              <div className="text-sm">
+                <span className="font-medium text-red-600">{getQuizProgress().completedQuestions - getQuizProgress().correctAnswers}</span>
+                <span className="text-muted-foreground"> incorrect</span>
+              </div>
+              <div className="text-sm">
+                <span className="font-medium text-blue-600">{getQuizProgress().accuracy}%</span>
+                <span className="text-muted-foreground"> accuracy</span>
+              </div>
+            </div>
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowReviewPanel(!showReviewPanel)}
+            className="flex items-center gap-2"
+          >
+            <Eye className="w-4 h-4" />
+            {showReviewPanel ? 'Hide' : 'Show'} Review
+          </Button>
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="mt-3">
+          <div className="flex justify-between text-xs text-muted-foreground mb-1">
+            <span>Progress</span>
+            <span>{getQuizProgress().completedQuestions}/{getQuizProgress().totalQuestions}</span>
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(getQuizProgress().completedQuestions / getQuizProgress().totalQuestions) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Review Panel */}
+      {showReviewPanel && questionResults.length > 0 && (
+        <div className="px-6 py-4 border-b bg-muted/20">
+          <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            Previous Questions Review
+          </h4>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {questionResults.map((result, index) => {
+              const questionData = questions[index];
+              return (
+                <div
+                  key={index}
+                  className={`p-3 rounded-lg border-2 text-xs ${
+                    result.correct
+                      ? 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800'
+                      : 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      result.correct ? 'bg-green-500' : 'bg-red-500'
+                    }`} />
+                    <span className="font-medium">Q{index + 1}</span>
+                    {result.correct ? (
+                      <CheckCircle2 className="w-3 h-3 text-green-600" />
+                    ) : (
+                      <XCircle className="w-3 h-3 text-red-600" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <div className="font-medium truncate">
+                      {questionData?.question?.substring(0, 30)}...
+                    </div>
+                    <div className="text-muted-foreground">
+                      <div className="truncate">
+                        <span className="font-medium">Your answer:</span> {result.userAnswer.substring(0, 20)}...
+                      </div>
+                      {!result.correct && (
+                        <div className="truncate">
+                          <span className="font-medium">Correct:</span> {questionData?.answer?.substring(0, 20)}...
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {Math.round(result.responseTime / 1000)}s
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      
       <CardContent className="space-y-6">
+        {/* Immediate Feedback */}
+        {showFeedback && (
+          <div className={`p-4 rounded-lg border-2 transition-all ${
+            isCorrect 
+              ? 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800' 
+              : 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                isCorrect ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'
+              }`}>
+                {isCorrect ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-red-600" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="font-medium">
+                  {isCorrect ? 'Correct!' : 'Incorrect'}
+                </div>
+                {!isCorrect && (
+                  <div className="text-sm text-muted-foreground mt-1">
+                    Correct answer: <span className="font-medium">{question.answer}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
         {renderQuestionByType()}
         
         {/* Hint */}
@@ -756,13 +936,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         {/* Answer and explanation */}
         {(showAnswer || isAnswered) && (
           <div className="space-y-4 border-t pt-4">
-            <div className="space-y-2">
-              <h4 className="font-medium text-green-700">Correct Answer:</h4>
-              <div className="p-3 bg-green-50 rounded-lg text-green-800">
-                {question.answer}
-              </div>
-            </div>
-            
             {question.explanation && (
               <div className="space-y-2">
                 <h4 className="font-medium text-blue-700">Explanation:</h4>

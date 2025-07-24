@@ -37,8 +37,9 @@ const QuizzesPage: React.FC = () => {
       ) : (
         <div className="space-y-4">
           {sortedResults.map(result => {
+            console.log(result);
             const percentage = Math.round((result.correctAnswers / result.totalQuestions) * 100);
-            const folderName = getFolderName(result.folderId);
+            const folderName = getFolderName(result.folder_id);
             
             return (
               <Card key={result.id} className="overflow-hidden">

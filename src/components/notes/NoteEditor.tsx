@@ -149,9 +149,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
     if (title.trim() === '') {
       toast({ 
-        title: 'Title is required', 
-        description: 'Please enter a title for your note', 
-        variant: 'destructive' 
+        title: 'Title is required',
+        description: 'Please enter a title for your note',
+        variant: 'destructive'
       });
       return;
     }
@@ -164,6 +164,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       description: `Note "${title}" has been saved successfully.`, 
       duration: 3000 
     });
+    
   }, [editor, title, onSave, toast]);
 
   // Auto-save functionality

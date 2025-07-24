@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Results Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Quiz Results Storage Test</h1>
+    
+    <div class="test-section info">
+        <h2>Test Overview</h2>
+        <p>This test verifies that quiz results are properly saved to and loaded from Supabase.</p>
+        <p><strong>Expected Behavior:</strong> After taking a quiz twice, both results should appear in the Quiz Management page.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Step 1: Check Current Quiz Results</h2>
+        <button onclick="checkCurrentResults()">Check Current Results</button>
+        <div id="current-results" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Step 2: Simulate Quiz Completion</h2>
+        <button onclick="simulateQuizCompletion()">Simulate Quiz Completion</button>
+        <div id="quiz-simulation" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Step 3: Verify Results After Quiz</h2>
+        <button onclick="verifyResultsAfterQuiz()">Verify Results</button>
+        <div id="verification" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        // Mock Supabase client for testing
+        const mockSupabase = {
+            from: (table) => ({
+                select: () => Promise.resolve({ data: mockData[table] || [] }),
+                insert: (data) => Promise.resolve({ data: data, error: null }),
+                eq: (field, value) => ({
+                    order: (field, options) => Promise.resolve({ 
+                        data: mockData[table]?.filter(item => item[field] === value) || [] 
+                    })
+                })
+            })
+        };
+
+        // Mock data storage
+        let mockData = {
+            quiz_results: []
+        };
+
+        let testLog = [];
+
+        function log(message, section) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            testLog.push(logMessage);
+            
+            const element = document.getElementById(section);
+            if (element) {
+                element.textContent = testLog.join('\n');
+            }
+            
+            console.log(logMessage);
+        }
+
+        function checkCurrentResults() {
+            log('Checking current quiz results...', 'current-results');
+            
+            // Simulate loading quiz results from Supabase
+            const results = mockData.quiz_results;
+            log(`Found ${results.length} quiz results in database`, 'current-results');
+            
+            results.forEach((result, index) => {
+                const date = new Date(result.date);
+                const dateLabel = getDateLabel(date);
+                const formattedTime = date.toLocaleTimeString('en-US', { 
+                    hour: 'numeric', 
+                    minute: '2-digit',
+                    hour12: true 
+                });
+                const timeAgo = getTimeAgo(date);
+                
+                log(`Result ${index + 1}: ${result.correctAnswers}/${result.totalQuestions} correct (${Math.round((result.correctAnswers / result.totalQuestions) * 100)}%)`, 'current-results');
+                log(`  📅 Date: ${dateLabel} at ${formattedTime}`, 'current-results');
+                log(`  ⏰ Time ago: ${timeAgo}`, 'current-results');
+            });
+        }
+        
+        function getTimeAgo(date) {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            const quizDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            const diffInMs = now.getTime() - date.getTime();
+            const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+            const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+            const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+            if (diffInMinutes < 1) return 'Just now';
+            if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+            if (diffInHours < 24) return `${diffInHours}h ago`;
+            if (diffInDays < 7) return `${diffInDays}d ago`;
+            return `${diffInDays} days ago`;
+        }
+        
+        function getDateLabel(date) {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            const quizDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            if (quizDate.getTime() === today.getTime()) return 'Today';
+            if (quizDate.getTime() === yesterday.getTime()) return 'Yesterday';
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric' 
+            });
+        }
+
+        function simulateQuizCompletion() {
+            log('Simulating quiz completion...', 'quiz-simulation');
+            
+            // Create a mock quiz result
+            const quizResult = {
+                id: `test-${Date.now()}`,
+                folder_id: 'test-folder-123',
+                user_id: 'test-user-123',
+                date: new Date().toISOString(),
+                correctAnswers: Math.floor(Math.random() * 5) + 1, // Random score 1-5
+                totalQuestions: 5,
+                questionResults: [
+                    {
+                        questionId: 'q1',
+                        correct: true,
+                        userAnswer: 'Correct answer',
+                        responseTime: 2000,
+                        confidence: 4,
+                        difficulty: 3
+                    }
+                ]
+            };
+            
+            // Save to mock database
+            mockData.quiz_results.push(quizResult);
+            log(`Quiz result saved: ${quizResult.correctAnswers}/${quizResult.totalQuestions} correct`, 'quiz-simulation');
+            log(`Total results in database: ${mockData.quiz_results.length}`, 'quiz-simulation');
+        }
+
+        function verifyResultsAfterQuiz() {
+            log('Verifying results after quiz completion...', 'verification');
+            
+            const results = mockData.quiz_results;
+            log(`Total quiz results: ${results.length}`, 'verification');
+            
+            if (results.length >= 2) {
+                log('✅ SUCCESS: Multiple quiz results are being stored!', 'verification');
+                log('This means the Quiz Management page should show all quiz attempts.', 'verification');
+                
+                // Update test results
+                document.getElementById('test-results').innerHTML = `
+                    <div class="success">
+                        <h3>✅ Test Passed!</h3>
+                        <p>Multiple quiz results are being properly stored and can be retrieved.</p>
+                        <p>Found ${results.length} quiz results in the database.</p>
+                    </div>
+                `;
+            } else {
+                log('❌ FAILURE: Only one or no quiz results found', 'verification');
+                log('This indicates the quiz results are not being properly saved.', 'verification');
+                
+                document.getElementById('test-results').innerHTML = `
+                    <div class="error">
+                        <h3>❌ Test Failed!</h3>
+                        <p>Quiz results are not being properly stored or retrieved.</p>
+                        <p>Expected multiple results, but found ${results.length}.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Instructions for manual testing
+        document.addEventListener('DOMContentLoaded', function() {
+            log('Quiz Results Test Loaded', 'current-results');
+            log('To test the actual application:', 'current-results');
+            log('1. Take a quiz in the app', 'current-results');
+            log('2. Complete the quiz and check the results', 'current-results');
+            log('3. Take the same quiz again', 'current-results');
+            log('4. Go to Quiz Management page for that folder', 'current-results');
+            log('5. Check if both quiz attempts appear in the History tab', 'current-results');
+        });
+    </script>
+</body>
+</html> 

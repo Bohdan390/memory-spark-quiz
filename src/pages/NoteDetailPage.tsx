@@ -31,7 +31,6 @@ const NoteDetailPage: React.FC = () => {
         description: 'The note you are trying to edit does not exist',
         variant: 'destructive'
       });
-      navigate(`/folders/${folderId}`);
     }
   }, [isNew, note, folderId, navigate, toast]);
 
@@ -46,12 +45,15 @@ const NoteDetailPage: React.FC = () => {
     );
   }
   
-  const handleSaveNote = (title: string, content: string) => {
+  const handleSaveNote = async (title: string, content: string) => {
     if (isNew) {
       createNote(folder.id, title, content);
       navigate(`/folders/${folderId}`);
     } else if (note) {
-      updateNote(folder.id, note.id, { title, content });
+     const success = await updateNote(folder.id, note.id, { title, content });
+     if (success) {
+      navigate(`/folders/${folderId}`);
+     }
     }
   };
   

@@ -7,9 +7,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApp } from '@/context/AppContext';
-import { ArrowLeft, Edit2, Save, X, Trash2, Plus, Brain, History, Target } from 'lucide-react';
+import NoteSelectionModal from '@/components/quiz/NoteSelectionModal';
+import { ArrowLeft, Edit2, Save, X, Trash2, Plus, Brain, History, Target, Calendar, Clock } from 'lucide-react';
 import { QuizQuestion, QuizResult } from '@/types/models';
 import { useToast } from '@/components/ui/use-toast';
+import { formatDistanceToNow, format } from 'date-fns';
 
 const QuizManagementPage: React.FC = () => {
   const { folderId } = useParams<{ folderId: string }>();
@@ -30,6 +32,7 @@ const QuizManagementPage: React.FC = () => {
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [editingQuestion, setEditingQuestion] = useState<string | null>(null);
   const [editedQuestion, setEditedQuestion] = useState<Partial<QuizQuestion>>({});
+  const [isNoteSelectionModalOpen, setIsNoteSelectionModalOpen] = useState(false);
   
   const folder = getFolder(folderId || '');
   
@@ -53,16 +56,23 @@ const QuizManagementPage: React.FC = () => {
   }
   
   const folderQuizResults = quizResults.filter(result => result.folder_id === folder.id);
-  const handleGenerateQuestions = async () => {
+  const handleGenerateQuestions = () => {
+    if (!folderId || !folder || folder.notes.length === 0) return;
+    
+    setIsNoteSelectionModalOpen(true);
+  };
+
+  const handleConfirmNoteSelection = async (selectedNoteIds: string[]) => {
     if (!folderId) return;
     
     try {
-      const newQuestions = await generateQuiz(folderId);
+      const newQuestions = await generateQuiz(folderId, selectedNoteIds);
       setQuestions(newQuestions);
       toast({
         title: 'Questions Generated!',
-        description: `Generated ${newQuestions.length} new quiz questions.`
+        description: `Generated ${newQuestions.length} new quiz questions from ${selectedNoteIds.length} selected notes.`
       });
+      setIsNoteSelectionModalOpen(false);
     } catch (error) {
       toast({
         title: 'Generation Failed',
@@ -166,6 +176,39 @@ const QuizManagementPage: React.FC = () => {
   };
   
   const stats = getTotalStats();
+  
+  // Helper function to format dates beautifully
+  const formatQuizDate = (date: Date) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const quizDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+    let relativeTime = '';
+    if (diffInMinutes < 1) relativeTime = 'Just now';
+    else if (diffInMinutes < 60) relativeTime = `${diffInMinutes}m ago`;
+    else if (diffInHours < 24) relativeTime = `${diffInHours}h ago`;
+    else if (diffInDays < 7) relativeTime = `${diffInDays}d ago`;
+    else relativeTime = formatDistanceToNow(date, { addSuffix: true });
+
+    const formattedDate = format(date, 'MMM dd, yyyy');
+    const formattedTime = format(date, 'h:mm a');
+
+    return {
+      relativeTime,
+      formattedDate,
+      formattedTime,
+      isToday: quizDate.getTime() === today.getTime(),
+      isYesterday: quizDate.getTime() === yesterday.getTime()
+    };
+  };
   
   return (
     <div>
@@ -350,40 +393,92 @@ const QuizManagementPage: React.FC = () => {
               </Card>
             ) : (
               <div className="space-y-4">
-                {folderQuizResults.map((result, index) => (
-                  <Card key={result.id}>
-                    <CardContent className="pt-6">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-semibold">Quiz #{folderQuizResults.length - index}</h3>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-2xl font-bold">
-                            {Math.round((result.correctAnswers / result.totalQuestions) * 100)}%
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {result.correctAnswers}/{result.totalQuestions} correct
-                          </div>
-                        </div>
-                      </div>
-                      {result.questionResults && (
-                        <div className="mt-4 space-y-2">
-                          <h4 className="text-sm font-medium">Question Results:</h4>
-                          <div className="grid grid-cols-1 gap-2">
-                            {result.questionResults.map((qResult, qIndex) => (
-                              <div key={qIndex} className="flex items-center justify-between text-sm border rounded p-2">
-                                <span>Q{qIndex + 1}</span>
-                                <span className={qResult.correct ? 'text-green-600' : 'text-red-600'}>
-                                  {qResult.correct ? '✓' : '✗'} {qResult.userAnswer}
-                                </span>
+                {folderQuizResults.map((result, index) => {
+                  const dateInfo = formatQuizDate(result.date);
+                  return (
+                    <Card key={`${result.date.getTime()}-${index}`} className="relative overflow-hidden">
+                      {/* Date badge */}
+                      
+                      <CardContent className="pt-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="font-semibold text-lg">Quiz #{folderQuizResults.length - index}</h3>
+                              <Badge variant="outline" className="text-xs">
+                                {result.totalQuestions} questions
+                              </Badge>
+                              <div className="text-xs">
+                                <Badge 
+                                  variant="secondary" 
+                                  className={`flex items-center gap-1 text-xs ${
+                                    dateInfo.isToday ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                                    dateInfo.isYesterday ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                                    'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                  }`}
+                                >
+                                  <Calendar className="w-3 h-3" />
+                                  {dateInfo.isToday ? 'Today' : dateInfo.isYesterday ? 'Yesterday' : dateInfo.formattedDate}
+                                </Badge>
                               </div>
-                            ))}
+                            </div>
+                            
+                            {/* Date and time info */}
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{dateInfo.formattedTime}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                <span>{dateInfo.relativeTime}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <div className="text-3xl font-bold mb-1">
+                              {Math.round((result.correctAnswers / result.totalQuestions) * 100)}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {result.correctAnswers}/{result.totalQuestions} correct
+                            </div>
                           </div>
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+                        
+                        {result.questionResults && (
+                          <div className="mt-4 space-y-2">
+                            <h4 className="text-sm font-medium flex items-center gap-2">
+                              <Target className="w-4 h-4" />
+                              Question Results
+                            </h4>
+                            <div className="grid grid-cols-1 gap-2">
+                              {result.questionResults.map((qResult, qIndex) => (
+                                <div key={`${result.date.getTime()}-q${qIndex}`} className="flex items-center justify-between text-sm border rounded-lg p-3 bg-muted/30">
+                                  <div className="flex items-center gap-3">
+                                    <span className="font-mono text-xs bg-background px-2 py-1 rounded">Q{qIndex + 1}</span>
+                                    <span className="text-muted-foreground">{qResult.userAnswer || 'No answer'}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                      qResult.correct 
+                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                    }`}>
+                                      {qResult.correct ? '✓ Correct' : '✗ Incorrect'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {Math.round(qResult.responseTime / 1000)}s
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -431,32 +526,71 @@ const QuizManagementPage: React.FC = () => {
           {folderQuizResults.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Performance Over Time</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5" />
+                  Performance Over Time
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {folderQuizResults.map((result, index) => (
-                    <div key={result.id} className="flex items-center justify-between">
-                      <span className="text-sm">Quiz #{folderQuizResults.length - index}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32 bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-memoquiz-purple h-2 rounded-full"
-                            style={{ width: `${(result.correctAnswers / result.totalQuestions) * 100}%` }}
-                          />
+                <div className="space-y-3">
+                  {folderQuizResults.map((result, index) => {
+                    const dateInfo = formatQuizDate(result.date);
+                    const score = Math.round((result.correctAnswers / result.totalQuestions) * 100);
+                    return (
+                      <div key={`${result.date.getTime()}-${index}`} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-medium">Quiz #{folderQuizResults.length - index}</div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Calendar className="w-3 h-3" />
+                            <span>{dateInfo.formattedDate}</span>
+                            <span>•</span>
+                            <Clock className="w-3 h-3" />
+                            <span>{dateInfo.formattedTime}</span>
+                          </div>
                         </div>
-                        <span className="text-sm font-medium w-12">
-                          {Math.round((result.correctAnswers / result.totalQuestions) * 100)}%
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full transition-all duration-300 ${
+                                  score >= 90 ? 'bg-green-500' :
+                                  score >= 80 ? 'bg-blue-500' :
+                                  score >= 70 ? 'bg-yellow-500' :
+                                  score >= 50 ? 'bg-orange-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${score}%` }}
+                              />
+                            </div>
+                            <span className={`text-sm font-medium w-12 ${
+                              score >= 90 ? 'text-green-600' :
+                              score >= 80 ? 'text-blue-600' :
+                              score >= 70 ? 'text-yellow-600' :
+                              score >= 50 ? 'text-orange-600' : 'text-red-600'
+                            }`}>
+                              {score}%
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {result.correctAnswers}/{result.totalQuestions}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
           )}
         </TabsContent>
       </Tabs>
+
+      <NoteSelectionModal
+        isOpen={isNoteSelectionModalOpen}
+        onClose={() => setIsNoteSelectionModalOpen(false)}
+        notes={folder?.notes || []}
+        onConfirm={handleConfirmNoteSelection}
+        isLoading={isGeneratingQuiz}
+      />
     </div>
   );
 };

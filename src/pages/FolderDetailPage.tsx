@@ -1,9 +1,10 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/context/AppContext';
 import NoteCard from '@/components/notes/NoteCard';
+import NoteSelectionModal from '@/components/quiz/NoteSelectionModal';
 import { Plus, BookOpen, BrainCircuit, FileText, PenSquare, Settings } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -12,6 +13,7 @@ const FolderDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { folders, getFolder, createNote, deleteNote, generateQuiz, isGeneratingQuiz } = useApp();
   const { toast } = useToast();
+  const [isNoteSelectionModalOpen, setIsNoteSelectionModalOpen] = useState(false);
   
   const folder = getFolder(folderId || '');
   
@@ -42,17 +44,24 @@ const FolderDetailPage: React.FC = () => {
     navigate(`/folders/${folderId}/quiz`);
   };
   
-  const handleGenerateQuiz = async () => {
+  const handleGenerateQuiz = () => {
+    if (!folderId || !folder || folder.notes.length === 0) return;
+    
+    setIsNoteSelectionModalOpen(true);
+  };
+
+  const handleConfirmNoteSelection = async (selectedNoteIds: string[]) => {
     if (!folderId) return;
     
     try {
-      const questions = await generateQuiz(folderId);
+      const questions = await generateQuiz(folderId, selectedNoteIds);
       if (questions.length > 0) {
         toast({
           title: 'Quiz Generated!',
-          description: `Successfully generated ${questions.length} questions. Click "Start Quiz" to begin.`
+          description: `Successfully generated ${questions.length} questions from ${selectedNoteIds.length} selected notes. Click "Start Quiz" to begin.`
         });
       }
+      setIsNoteSelectionModalOpen(false);
     } catch (error) {
       toast({
         title: 'Generation Failed',
@@ -129,6 +138,14 @@ const FolderDetailPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      <NoteSelectionModal
+        isOpen={isNoteSelectionModalOpen}
+        onClose={() => setIsNoteSelectionModalOpen(false)}
+        notes={folder?.notes || []}
+        onConfirm={handleConfirmNoteSelection}
+        isLoading={isGeneratingQuiz}
+      />
     </div>
   );
 };
