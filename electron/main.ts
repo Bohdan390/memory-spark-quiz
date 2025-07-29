@@ -7,6 +7,7 @@ const net = require('net');
 let mainWindow = null;
 
 const isDev = process.env.NODE_ENV === 'development';
+const isDebug = process.argv.includes('--debug') || process.env.ELECTRON_DEBUG === 'true';
 
 // Storage paths
 const DOCUMENTS_PATH = path.join(os.homedir(), 'Documents', 'MemoQuiz');
@@ -101,12 +102,48 @@ const createWindow = async () => {
       } catch (error) {
         console.error('Failed to load development server:', error);
         // Fallback to production build
-        loadUrl = `file://${path.join(__dirname, '../dist/index.html')}`;
-        await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        const indexPath = path.join(__dirname, '../dist/index.html');
+        console.log(`Fallback: Loading production app from: ${indexPath}`);
+        await mainWindow.loadFile(indexPath);
       }
+    } else if (isDebug) {
+      // Debug mode: Load test page first
+      const testPath = path.join(__dirname, '..', 'dist', 'test.html');
+      console.log(`Debug mode: Loading test page from: ${testPath}`);
+      if (fs.existsSync(testPath)) {
+        await mainWindow.loadFile(testPath);
+        console.log('Test page loaded successfully');
+      } else {
+        console.error('Test page not found, trying main app');
+        const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+        await mainWindow.loadFile(indexPath);
+      }
+      
+      // Open DevTools in debug mode
+      mainWindow.webContents.openDevTools();
     } else {
       // In production, the dist folder is packaged with the app
-      const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+      // Try multiple possible paths for different build configurations
+      const possiblePaths = [
+        path.join(__dirname, '..', 'dist', 'index.html'),
+        path.join(__dirname, 'dist', 'index.html'),
+        path.join(process.resourcesPath, 'app', 'dist', 'index.html'),
+        path.join(__dirname, '..', 'app', 'dist', 'index.html')
+      ];
+      
+      let indexPath = null;
+      for (const testPath of possiblePaths) {
+        if (fs.existsSync(testPath)) {
+          indexPath = testPath;
+          console.log(`Found index.html at: ${indexPath}`);
+          break;
+        }
+      }
+      
+      if (!indexPath) {
+        throw new Error(`Could not find index.html. Tried paths: ${possiblePaths.join(', ')}`);
+      }
+      
       console.log(`Loading production app from: ${indexPath}`);
       await mainWindow.loadFile(indexPath);
     }
@@ -128,6 +165,28 @@ const createWindow = async () => {
       mainWindow = null;
     });
 
+    // Add error handler for failed loads
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+      console.error('Failed to load:', errorCode, errorDescription, validatedURL);
+      
+      // Show error page
+      mainWindow.loadURL(`data:text/html,
+        <html>
+          <head><title>Error</title></head>
+          <body style="font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5;">
+            <div style="max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <h1 style="color: #e74c3c;">Failed to Load Application</h1>
+              <p><strong>Error Code:</strong> ${errorCode}</p>
+              <p><strong>Error:</strong> ${errorDescription}</p>
+              <p><strong>URL:</strong> ${validatedURL}</p>
+              <p>Please restart the application or check the console for more details.</p>
+              <button onclick="window.location.reload()" style="background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Reload</button>
+            </div>
+          </body>
+        </html>
+      `);
+    });
+
   } catch (error) {
     console.error('Error creating window:', error);
     
@@ -136,10 +195,13 @@ const createWindow = async () => {
       await mainWindow.loadURL(`data:text/html,
         <html>
           <head><title>Error</title></head>
-          <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h1>Failed to Load Application</h1>
-            <p>Error: ${error}</p>
-            <p>Please restart the application.</p>
+          <body style="font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5;">
+            <div style="max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <h1 style="color: #e74c3c;">Failed to Load Application</h1>
+              <p><strong>Error:</strong> ${error}</p>
+              <p>Please restart the application.</p>
+              <button onclick="window.location.reload()" style="background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Reload</button>
+            </div>
           </body>
         </html>
       `);
@@ -525,6 +587,15 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Add debugging for macOS
+if (process.platform === 'darwin') {
+  console.log('Running on macOS');
+  console.log('App path:', app.getAppPath());
+  console.log('Resource path:', process.resourcesPath);
+  console.log('Current directory:', process.cwd());
+  console.log('__dirname:', __dirname);
+}
+
 // Handle certificate errors
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
   if (isDev) {
@@ -542,6 +613,15 @@ app.on('web-contents-created', (event, contents) => {
   contents.on('new-window', (navigationEvent, url) => {
     navigationEvent.preventDefault();
   });
+});
+
+// Add crash handler for debugging
+app.on('render-process-gone', (event, webContents, details) => {
+  console.error('Render process gone:', details);
+});
+
+app.on('child-process-gone', (event, details) => {
+  console.error('Child process gone:', details);
 });
 
 module.exports = {}; 
