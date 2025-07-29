@@ -16,7 +16,7 @@
     "dist": "npm run build:electron && electron-builder",
     "pack": "npm run build:electron && electron-builder --dir",
     "postinstall": "electron-builder install-app-deps",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build && electron-builder --mac",
     "build:platform": "node scripts/build-platforms.js"
   },
   "dependencies": {
