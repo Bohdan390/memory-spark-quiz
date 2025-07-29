@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Note } from '@/types/models';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { stripHtmlAndMarkdown } from '@/lib/utils';
 
 interface NoteSelectionModalProps {
   isOpen: boolean;
@@ -61,7 +62,7 @@ const NoteSelectionModal: React.FC<NoteSelectionModalProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-medium">
-              Select which notes to use for generating quiz questions
+              Select which notes to use for generating quiz questions.
             </Label>
             <Button
               variant="outline"
@@ -86,15 +87,15 @@ const NoteSelectionModal: React.FC<NoteSelectionModalProps> = ({
                         className="mt-1"
                       />
                       <div className="flex-1 min-w-0">
-                        <Label 
-                          htmlFor={note.id} 
+                        <Label
+                          htmlFor={note.id}
                           className="text-sm font-medium cursor-pointer line-clamp-1"
                         >
                           {note.title}
                         </Label>
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                          {note.content.replace(/<[^>]*>/g, '').substring(0, 150)}
-                          {note.content.length > 150 ? '...' : ''}
+                          {stripHtmlAndMarkdown(note.content).substring(0, 150)}
+                          {stripHtmlAndMarkdown(note.content).length > 150 ? '...' : ''}
                         </p>
                       </div>
                     </div>

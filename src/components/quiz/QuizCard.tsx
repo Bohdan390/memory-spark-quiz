@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { QuizQuestion, QuestionType, ReviewResult, QuizResult } from '@/types/models';
+import { QuizQuestion, QuestionType, ReviewResult } from '@/types/models';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { 
   Clock, 
   Brain, 
@@ -13,7 +12,6 @@ import {
   Star, 
   RotateCcw, 
   Eye, 
-  EyeOff,
   Lightbulb,
   Trophy,
   Zap,
@@ -29,13 +27,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose
 } from "@/components/ui/dialog";
 
 type QuestionResult = {
@@ -56,21 +48,180 @@ interface QuizCardProps {
   isReview?: boolean;
 }
 
-let questionResults: QuestionResult[] = [];
+let timer: NodeJS.Timeout | null = null;
+
+// Utility function for enhanced answer comparison
+const normalizeAnswer = (answer: string) => {
+  return answer
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .replace(/[^\w\s]/g, '') // Remove special characters except letters, numbers, and spaces
+    .trim();
+};
+
+// Enhanced comparison function that handles common variations
+const compareAnswers = (userAnswer: string, correctAnswer: string): boolean => {
+  const normalizedUser = normalizeAnswer(userAnswer);
+  const normalizedCorrect = normalizeAnswer(correctAnswer);
+  
+  // Exact match after normalization
+  if (normalizedUser === normalizedCorrect) {
+    return true;
+  }
+  
+  // Handle common variations
+  const variations = [
+    // Common abbreviations
+    { from: 'united states', to: 'usa' },
+    { from: 'united kingdom', to: 'uk' },
+    { from: 'new york city', to: 'nyc' },
+    { from: 'los angeles', to: 'la' },
+    { from: 'san francisco', to: 'sf' },
+    { from: 'doctor', to: 'dr' },
+    { from: 'mister', to: 'mr' },
+    { from: 'misses', to: 'mrs' },
+    { from: 'miss', to: 'ms' },
+    { from: 'professor', to: 'prof' },
+    { from: 'street', to: 'st' },
+    { from: 'avenue', to: 'ave' },
+    { from: 'boulevard', to: 'blvd' },
+    { from: 'road', to: 'rd' },
+    { from: 'drive', to: 'dr' },
+    { from: 'circle', to: 'cir' },
+    { from: 'lane', to: 'ln' },
+    { from: 'place', to: 'pl' },
+    { from: 'court', to: 'ct' },
+    { from: 'apartment', to: 'apt' },
+    { from: 'building', to: 'bldg' },
+    { from: 'company', to: 'co' },
+    { from: 'corporation', to: 'corp' },
+    { from: 'incorporated', to: 'inc' },
+    { from: 'limited', to: 'ltd' },
+    { from: 'department', to: 'dept' },
+    { from: 'government', to: 'gov' },
+    { from: 'university', to: 'univ' },
+    { from: 'college', to: 'col' },
+    { from: 'institute', to: 'inst' },
+    { from: 'association', to: 'assoc' },
+    { from: 'organization', to: 'org' },
+    { from: 'international', to: 'intl' },
+    { from: 'national', to: 'natl' },
+    { from: 'federal', to: 'fed' },
+    { from: 'state', to: 'st' },
+    { from: 'county', to: 'co' },
+    { from: 'city', to: 'cty' },
+    { from: 'town', to: 'tn' },
+    { from: 'village', to: 'vlg' },
+    { from: 'district', to: 'dist' },
+    { from: 'region', to: 'reg' },
+    { from: 'area', to: 'ar' },
+    { from: 'zone', to: 'zn' },
+    { from: 'section', to: 'sec' },
+    { from: 'division', to: 'div' },
+    { from: 'branch', to: 'br' },
+    { from: 'office', to: 'off' },
+    { from: 'center', to: 'ctr' },
+    { from: 'centre', to: 'ctr' },
+    { from: 'hospital', to: 'hosp' },
+    { from: 'school', to: 'sch' },
+    { from: 'library', to: 'lib' },
+    { from: 'museum', to: 'mus' },
+    { from: 'theater', to: 'theatre' },
+    { from: 'theatre', to: 'theater' },
+    { from: 'color', to: 'colour' },
+    { from: 'colour', to: 'color' },
+    { from: 'favorite', to: 'favourite' },
+    { from: 'favourite', to: 'favorite' },
+    { from: 'labor', to: 'labour' },
+    { from: 'labour', to: 'labor' },
+    { from: 'neighbor', to: 'neighbour' },
+    { from: 'neighbour', to: 'neighbor' },
+    { from: 'honor', to: 'honour' },
+    { from: 'honour', to: 'honor' },
+    { from: 'behavior', to: 'behaviour' },
+    { from: 'behaviour', to: 'behavior' },
+    { from: 'center', to: 'centre' },
+    { from: 'centre', to: 'center' },
+    { from: 'meter', to: 'metre' },
+    { from: 'metre', to: 'meter' },
+    { from: 'liter', to: 'litre' },
+    { from: 'litre', to: 'liter' },
+    { from: 'kilometer', to: 'kilometre' },
+    { from: 'kilometre', to: 'kilometer' },
+    { from: 'centimeter', to: 'centimetre' },
+    { from: 'centimetre', to: 'centimeter' },
+    { from: 'millimeter', to: 'millimetre' },
+    { from: 'millimetre', to: 'millimeter' },
+    { from: 'gram', to: 'gramme' },
+    { from: 'gramme', to: 'gram' },
+    { from: 'kilogram', to: 'kilogramme' },
+    { from: 'kilogramme', to: 'kilogram' },
+    { from: 'ton', to: 'tonne' },
+    { from: 'tonne', to: 'ton' },
+    { from: 'pound', to: 'lb' },
+    { from: 'ounce', to: 'oz' },
+    { from: 'inch', to: 'in' },
+    { from: 'foot', to: 'ft' },
+    { from: 'yard', to: 'yd' },
+    { from: 'mile', to: 'mi' },
+    { from: 'gallon', to: 'gal' },
+    { from: 'quart', to: 'qt' },
+    { from: 'pint', to: 'pt' },
+    { from: 'cup', to: 'c' },
+    { from: 'tablespoon', to: 'tbsp' },
+    { from: 'teaspoon', to: 'tsp' },
+    { from: 'minute', to: 'min' },
+    { from: 'hour', to: 'hr' },
+    { from: 'second', to: 'sec' },
+    { from: 'year', to: 'yr' },
+    { from: 'month', to: 'mo' },
+    { from: 'week', to: 'wk' },
+    { from: 'day', to: 'd' },
+    { from: 'january', to: 'jan' },
+    { from: 'february', to: 'feb' },
+    { from: 'march', to: 'mar' },
+    { from: 'april', to: 'apr' },
+    { from: 'may', to: 'may' },
+    { from: 'june', to: 'jun' },
+    { from: 'july', to: 'jul' },
+    { from: 'august', to: 'aug' },
+    { from: 'september', to: 'sep' },
+    { from: 'october', to: 'oct' },
+    { from: 'november', to: 'nov' },
+    { from: 'december', to: 'dec' },
+    { from: 'monday', to: 'mon' },
+    { from: 'tuesday', to: 'tue' },
+    { from: 'wednesday', to: 'wed' },
+    { from: 'thursday', to: 'thu' },
+    { from: 'friday', to: 'fri' },
+    { from: 'saturday', to: 'sat' },
+    { from: 'sunday', to: 'sun' },
+  ];
+  
+  // Check if user answer matches any variation of the correct answer
+  for (const variation of variations) {
+    if (normalizedUser === variation.from && normalizedCorrect === variation.to) {
+      return true;
+    }
+    if (normalizedUser === variation.to && normalizedCorrect === variation.from) {
+      return true;
+    }
+  }
+  
+  return false;
+};
 
 export const QuizCard: React.FC<QuizCardProps> = ({
   questions,
   onAnswer,
   onFinish,
   showAnswer = false,
-  isReview = false
 }) => {
   const [userAnswer, setUserAnswer] = useState<string>('');
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [orderedItems, setOrderedItems] = useState<string[]>([]);
-  const [matchedPairs, setMatchedPairs] = useState<{ [key: string]: string }>({});
   const [showHint, setShowHint] = useState(false);
-  const [showExplanation, setShowExplanation] = useState(false);
   const [isAnswered, setIsAnswered] = useState(false);
   const [startTime, setStartTime] = useState<number>(Date.now());
   const [confidence, setConfidence] = useState<number>(3);
@@ -81,8 +232,32 @@ export const QuizCard: React.FC<QuizCardProps> = ({
   const [showResultModal, setShowResultModal] = useState(false);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [quizResult, setQuizResult] = useState<Partial<QuizResult>>({});
   const [showReviewPanel, setShowReviewPanel] = useState(false);
+  const [questionResults, setQuestionResults] = useState<QuestionResult[]>([]);
+  const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<NodeJS.Timeout | null>(null);
+
+  // Reset quiz state when questions change (new quiz session)
+  useEffect(() => {
+    setQuestionIndex(0);
+    setQuestion(questions[0]);
+    setQuestionResults([]);
+    setShowFeedback(false);
+    setIsCorrect(null);
+    setIsAnswered(false);
+    setUserAnswer('');
+    setSelectedOptions([]);
+    setOrderedItems(questions[0]?.options ? [...questions[0].options].sort(() => Math.random() - 0.5) : []);
+    setShowHint(false);
+    setIsFlipped(false);
+    setConfidence(3);
+    setDifficulty(3);
+    setStartTime(Date.now());
+    
+    if (autoAdvanceTimer) {
+      clearTimeout(autoAdvanceTimer);
+      setAutoAdvanceTimer(null);
+    }
+  }, [questions, autoAdvanceTimer]);
 
   useEffect(() => {
     setStartTime(Date.now());
@@ -90,11 +265,23 @@ export const QuizCard: React.FC<QuizCardProps> = ({
     setUserAnswer('');
     setSelectedOptions([]);
     setOrderedItems(question.options ? [...question.options].sort(() => Math.random() - 0.5) : []);
-    setMatchedPairs({});
     setShowHint(false);
-    setShowExplanation(false);
     setIsFlipped(false);
-  }, [question]);
+    
+    if (autoAdvanceTimer) {
+      clearTimeout(autoAdvanceTimer);
+      setAutoAdvanceTimer(null);
+    }
+  }, [question, autoAdvanceTimer]);
+
+  // Cleanup timer on component unmount
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceTimer) {
+        clearTimeout(autoAdvanceTimer);
+      }
+    };
+  }, [autoAdvanceTimer]);
 
   const handleSubmitAnswer = (grade: number) => {
     if (isAnswered) return;
@@ -107,7 +294,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       difficulty
     };
     
-    // Determine if answer is correct based on question type
     let correct = false;
     let userAnswerText = '';
     
@@ -115,16 +301,18 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       correct = selectedOptions[0] === question.answer;
       userAnswerText = selectedOptions[0] || '';
     } else if (question.type === 'fillInBlank' || question.type === 'typing' || question.type === 'reversedCard') {
-      correct = userAnswer.toLowerCase().trim() === question.answer.toLowerCase().trim();
+      correct = compareAnswers(userAnswer, question.answer);
       userAnswerText = userAnswer;
+      
     } else if (question.type === 'trueFalse') {
       correct = userAnswer === question.answer.toLowerCase();
       userAnswerText = userAnswer;
     } else if (question.type === 'cloze') {
       const blanks = question.blanks || [];
-      correct = blanks.every((blank, index) => 
-        selectedOptions[index]?.toLowerCase().trim() === blank.toLowerCase().trim()
-      );
+      
+      correct = blanks.every((blank, index) => {
+        return compareAnswers(selectedOptions[index] || '', blank);
+      });
       userAnswerText = selectedOptions.join(', ');
     } else if (question.type === 'ordering') {
       correct = orderedItems.every((item, index) => 
@@ -142,27 +330,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       difficulty
     };
     
-    questionResults.push(newQuestionResult);
+    setQuestionResults(prev => [...prev, newQuestionResult]);
     
-    // Show immediate feedback
     setIsCorrect(correct);
     setShowFeedback(true);
     setIsAnswered(true);
-    setShowExplanation(true);
     onAnswer(result);
     
-    // Auto-advance after showing feedback
-    setTimeout(() => {
-      setShowFeedback(false);
-      setIsCorrect(null);
-      if (questionIndex < questions.length - 1) {
-        setQuestion(questions[questionIndex + 1]);
-        setQuestionIndex(questionIndex + 1);
-      } else {
-        onFinish(questionResults);
-        questionResults = [];
-      }
-    }, 3000); // Show feedback for 3 seconds
+    timer = setTimeout(() => {
+      handleNextQuestion();
+    }, 5000);
+  };
+
+  const handleNextQuestion = () => {
+    if (timer) clearTimeout(timer);
+    if (autoAdvanceTimer) {
+      clearTimeout(autoAdvanceTimer);
+      setAutoAdvanceTimer(null);
+    }
+    
+    setShowFeedback(false);
+    setIsCorrect(null);
+    if (questionIndex < questions.length - 1) {
+      setQuestion(questions[questionIndex + 1]);
+      setQuestionIndex(questionIndex + 1);
+    } else {
+      onFinish(questionResults);
+      setQuestionResults([]);
+    }
   };
   const renderQuestionByType = () => {
     switch (question.type) {
@@ -284,19 +479,39 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           })}
         </div>
         
-        {!isAnswered && (
-          <Button 
-            onClick={() => {
-              const isCorrect = blanks.every((blank, index) => 
-                selectedOptions[index]?.toLowerCase().trim() === blank.toLowerCase().trim()
-              );
-              handleSubmitAnswer(isCorrect ? 3 : 1);
-            }}
-            disabled={selectedOptions.length === 0}
-          >
-            Submit Answer
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {!isAnswered && (
+            <Button 
+              onClick={() => {
+                const isCorrect = blanks.every((blank, index) => {
+                  return compareAnswers(selectedOptions[index] || '', blank);
+                });
+                handleSubmitAnswer(isCorrect ? 3 : 1);
+              }}
+              disabled={selectedOptions.length === 0}
+            >
+              Submit Answer
+            </Button>
+          )}
+          {isAnswered && (
+            <Button 
+              onClick={handleNextQuestion}
+              className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+            >
+              {questionIndex < questions.length - 1 ? (
+                <>
+                  Next Question
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              ) : (
+                <>
+                  Finish Quiz
+                  <Trophy className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     );
   };
@@ -315,17 +530,37 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         className="text-lg"
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => {
-            const isCorrect = userAnswer.toLowerCase().trim() === question.answer.toLowerCase().trim();
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => {
+              const isCorrect = compareAnswers(userAnswer, question.answer);
+              handleSubmitAnswer(isCorrect ? 3 : 1);
+            }}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -356,16 +591,36 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         ))}
       </div>
       
-      {!isAnswered && selectedOptions.length > 0 && (
-        <Button 
-          onClick={() => {
-            const isCorrect = selectedOptions[0] === question.answer;
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && selectedOptions.length > 0 && (
+          <Button 
+            onClick={() => {
+              const isCorrect = selectedOptions[0] === question.answer;
+              handleSubmitAnswer(isCorrect ? 3 : 1);
+            }}
+          >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -415,11 +670,31 @@ export const QuizCard: React.FC<QuizCardProps> = ({
           </div>
         </div>
         
-        {!isAnswered && (
-          <Button onClick={() => handleSubmitAnswer(3)}>
-            Submit Matches
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {!isAnswered && (
+            <Button onClick={() => handleSubmitAnswer(3)}>
+              Submit Matches
+            </Button>
+          )}
+          {isAnswered && (
+            <Button 
+              onClick={handleNextQuestion}
+              className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+            >
+              {questionIndex < questions.length - 1 ? (
+                <>
+                  Next Question
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              ) : (
+                <>
+                  Finish Quiz
+                  <Trophy className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     );
   };
@@ -456,18 +731,38 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         ))}
       </div>
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => {
-            const isCorrect = orderedItems.every((item, index) => 
-              item === question.correctOrder?.[index]
-            );
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-        >
-          Submit Order
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => {
+              const isCorrect = orderedItems.every((item, index) => 
+                item === question.correctOrder?.[index]
+              );
+              handleSubmitAnswer(isCorrect ? 3 : 1);
+            }}
+          >
+            Submit Order
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -485,14 +780,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         rows={3}
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => handleSubmitAnswer(3)}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Definition
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => handleSubmitAnswer(3)}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Definition
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -510,14 +825,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         rows={4}
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => handleSubmitAnswer(3)}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Comparison
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => handleSubmitAnswer(3)}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Comparison
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -535,14 +870,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         rows={4}
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => handleSubmitAnswer(3)}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Application
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => handleSubmitAnswer(3)}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Application
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -560,14 +915,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         rows={5}
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => handleSubmitAnswer(3)}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Explanation
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => handleSubmitAnswer(3)}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Explanation
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -585,14 +960,34 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         rows={2}
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => handleSubmitAnswer(3)}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => handleSubmitAnswer(3)}
+            disabled={!userAnswer.trim()}
+          >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -623,16 +1018,36 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         </Button>
       </div>
       
-      {!isAnswered && userAnswer && (
-        <Button 
-          onClick={() => {
-            const isCorrect = userAnswer === question.answer.toLowerCase();
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && userAnswer && (
+          <Button 
+            onClick={() => {
+              const isCorrect = userAnswer === question.answer.toLowerCase();
+              handleSubmitAnswer(isCorrect ? 3 : 1);
+            }}
+          >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -650,17 +1065,37 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         className="text-lg font-mono"
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => {
-            const isCorrect = userAnswer === question.answer;
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-          disabled={!userAnswer}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+          <Button 
+            onClick={() => {
+              const isCorrect = userAnswer === question.answer;
+              handleSubmitAnswer(isCorrect ? 3 : 1);
+            }}
+            disabled={!userAnswer}
+          >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -678,17 +1113,37 @@ export const QuizCard: React.FC<QuizCardProps> = ({
         className="text-lg"
       />
       
-      {!isAnswered && (
-        <Button 
-          onClick={() => {
-            const isCorrect = userAnswer.toLowerCase().trim() === question.question.toLowerCase().trim();
-            handleSubmitAnswer(isCorrect ? 3 : 1);
-          }}
-          disabled={!userAnswer.trim()}
-        >
-          Submit Answer
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {!isAnswered && (
+                                                                                           <Button 
+                onClick={() => {
+                  const isCorrect = compareAnswers(userAnswer, question.question);
+                  handleSubmitAnswer(isCorrect ? 3 : 1);
+                }}
+                disabled={!userAnswer.trim()}
+              >
+            Submit Answer
+          </Button>
+        )}
+        {isAnswered && (
+          <Button 
+            onClick={handleNextQuestion}
+            className="bg-memoquiz-purple hover:bg-memoquiz-purple/90 text-white"
+          >
+            {questionIndex < questions.length - 1 ? (
+              <>
+                Next Question
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            ) : (
+              <>
+                Finish Quiz
+                <Trophy className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -732,17 +1187,12 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       currentQuestion: questionIndex + 1
     };
   };
-
-  // Get question result by index
-  const getQuestionResult = (index: number) => {
-    return questionResults[index] || null;
-  };
   
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 font-display">
             {getTypeIcon(question.type)}
             <span className="capitalize">{question.type.replace(/([A-Z])/g, ' $1').trim()}</span>
           </CardTitle>
@@ -808,7 +1258,35 @@ export const QuizCard: React.FC<QuizCardProps> = ({
             {showReviewPanel ? 'Hide' : 'Show'} Review
           </Button>
         </div>
-        
+        {showFeedback && (
+          <div className={`p-4 rounded-lg border-2 transition-all ${
+            isCorrect 
+              ? 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800' 
+              : 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                isCorrect ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'
+              }`}>
+                {isCorrect ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-red-600" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="font-medium">
+                  {isCorrect ? 'Correct!' : 'Incorrect'}
+                </div>
+                {!isCorrect && (
+                  <div className="text-sm text-muted-foreground mt-1">
+                    Correct answer: <span className="font-medium">{question.answer}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {/* Progress Bar */}
         <div className="mt-3">
           <div className="flex justify-between text-xs text-muted-foreground mb-1">
@@ -881,35 +1359,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
       
       <CardContent className="space-y-6">
         {/* Immediate Feedback */}
-        {showFeedback && (
-          <div className={`p-4 rounded-lg border-2 transition-all ${
-            isCorrect 
-              ? 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800' 
-              : 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800'
-          }`}>
-            <div className="flex items-center gap-3">
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                isCorrect ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'
-              }`}>
-                {isCorrect ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-red-600" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="font-medium">
-                  {isCorrect ? 'Correct!' : 'Incorrect'}
-                </div>
-                {!isCorrect && (
-                  <div className="text-sm text-muted-foreground mt-1">
-                    Correct answer: <span className="font-medium">{question.answer}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
         
         {renderQuestionByType()}
         
@@ -944,49 +1393,6 @@ export const QuizCard: React.FC<QuizCardProps> = ({
                 </div>
               </div>
             )}
-          </div>
-        )}
-        
-        {/* Rating controls */}
-        {isAnswered && !isReview && (
-          <div className="space-y-4 border-t pt-4">
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  How confident were you? ({confidence}/5)
-                </label>
-                <div className="flex gap-1 mt-1">
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <Button
-                      key={rating}
-                      variant={confidence >= rating ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setConfidence(rating)}
-                    >
-                      <Star className="w-3 h-3" />
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  How difficult was this? ({difficulty}/5)
-                </label>
-                <div className="flex gap-1 mt-1">
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <Button
-                      key={rating}
-                      variant={difficulty >= rating ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setDifficulty(rating)}
-                    >
-                      <Brain className="w-3 h-3" />
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         )}
         

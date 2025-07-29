@@ -10,8 +10,10 @@ interface AppContextType {
 	currentFolder: Folder | null;
 	currentNote: Note | null;
 	currentQuiz: QuizQuestion[] | null;
+	quizQuestions: QuizQuestion[];
 	quizResults: QuizResult[];
 	isLoadingData: boolean;
+	loadingProgress: number;
 
 	createFolder: (name: string, description?: string) => Promise<Folder | null>;
 	getFolder: (id: string) => Folder | undefined;
@@ -26,6 +28,7 @@ interface AppContextType {
 	setCurrentNote: (note: Note | null) => void;
 
 	generateQuiz: (folderId: string, selectedNoteIds?: string[]) => Promise<QuizQuestion[]>;
+	generateMultipleChoiceQuiz: (folderId: string, selectedNoteIds?: string[]) => Promise<QuizQuestion[]>;
 	saveQuizResult: (result: Omit<QuizResult, 'id' | 'user_id'>) => Promise<void>;
 	updateQuestionSpacedRepetitionData: (folderId: string, questionId: string, correct: boolean) => Promise<void>;
 	isGeneratingQuiz: boolean;
@@ -35,7 +38,6 @@ interface AppContextType {
 	updateQuestion: (questionId: string, data: Partial<QuizQuestion>) => Promise<void>;
 	createQuestion: (folderId: string, data: QuizQuestion) => Promise<void>;
 	deleteQuestion: (questionId: string) => void;
-	addQuestion: (folderId: string, question: Omit<QuizQuestion, 'id' | 'user_id'>) => QuizQuestion;
 
 	// New category/entry system
 	categories: Category[];
@@ -57,6 +59,7 @@ interface AppContextType {
 
 	getQuizes: (folderId: string) => QuizQuestion[];
 	getQuizResults: (folderId: string) => Promise<QuizResult[]>;
+	cleanupOrphanedQuizResults: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -70,7 +73,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 	const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
 	const [isGeneratingQuiz, setIsGeneratingQuiz] = useState<boolean>(false);
 	const [isLoadingData, setIsLoadingData] = useState(false);
-	const [folderQuestions, setFolderQuestions] = useState<QuizQuestion | null>(null);
+	const [loadingProgress, setLoadingProgress] = useState(0);
 
 	// New category/entry state
 	const [categories, setCategories] = useState<Category[]>([]);
@@ -83,59 +86,99 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 	// Mock user ID for local storage
 	const MOCK_USER_ID = 'local-user-123';
 
-	// Load data from localStorage on app start
+	// Load data from database on app start
 	const loadLocalData = useCallback(async () => {
 		try {
-			const folderResults = await supabase
-				.from('folders')
-				.select('*');
+			setIsLoadingData(true);
+			setLoadingProgress(0);
+			console.time('loadLocalData');
+			
+			// Define default folders
+			const defaultFolders = [
+				{ name: 'Books', description: 'Your reading notes and book summaries' },
+				{ name: 'Knowledge Hub', description: 'General knowledge and learning notes' },
+				{ name: 'Diary', description: 'Personal diary entries and reflections' }
+			];
+
+			setLoadingProgress(10);
+			// Load all data in parallel for better performance
+			// Use pagination for large datasets to improve performance
+			const [folderResults, quizQuestions, noteResults, quizResultsData] = await Promise.all([
+				supabase.from('folders').select('*').limit(1000),
+				supabase.from('quiz_questions').select('*').limit(1000),
+				supabase.from('notes').select('*').limit(1000),
+				supabase.from('quiz_results').select('*').order('date', { ascending: false }).limit(500)
+			]);
+			setLoadingProgress(40);
 
 			const savedFolders = folderResults.data;
-			// const savedFolders = localStorage.getItem('memoquiz-folders');
-			// const savedQuizResults = localStorage.getItem('memoquiz-quiz-results');
-			const quizQuestions = await supabase
-				.from('quiz_questions')
-				.select('*');
+			const saveNotes = noteResults.data;
+			const saveQuizQuestions = quizQuestions.data;
 
-			const noteResults = await supabase
-				.from('notes')
-				.select('*');
+			setLoadingProgress(50);
+			// Process folders and notes efficiently
+			if (savedFolders && savedFolders.length > 0) {
+				// Create a map for faster note lookup
+				const notesMap = new Map();
+				if (saveNotes) {
+					saveNotes.forEach((note: any) => {
+						if (!notesMap.has(note.folder_id)) {
+							notesMap.set(note.folder_id, []);
+						}
+						notesMap.get(note.folder_id).push({
+							...note,
+							createdAt: new Date(note.createdAt),
+							updatedAt: new Date(note.updatedAt),
+							lastReviewed: note.lastReviewed ? new Date(note.lastReviewed) : undefined,
+						});
+					});
+				}
 
-			const quizResultsData = await supabase
-				.from('quiz_results')
-				.select('*')
-				.order('date', { ascending: false });
-
-			const saveNotes = noteResults.data
-
-			const saveQuizQuestions = quizQuestions.data
-			// Removed broken supabase code; setQuestions is not defined and supabase call is not awaited.
-			// If you want to load quiz questions from localStorage, you could do it here.
-			if (savedFolders) {
-				const parsedFolders = savedFolders.map((f: any) => {
-					var notes = saveNotes?.filter(_n => _n.folder_id == f.id);
-					return {
-						...f,
-						createdAt: new Date(f.createdAt),
-						updatedAt: new Date(f.updatedAt),
-						notes: (notes || []).map((n: any) => ({
-							...n,
-							createdAt: new Date(n.createdAt),
-							updatedAt: new Date(n.updatedAt),
-							lastReviewed: n.lastReviewed ? new Date(n.lastReviewed) : undefined,
-						})),
-					}
-				});
-				setFolders(parsedFolders);
-			}
-
-			if (saveQuizQuestions) {
-				const parsedQuestions = saveQuizQuestions.map((r: any) => ({
-					...r,
+				// Process folders with optimized note assignment
+				const parsedFolders = savedFolders.map((f: any) => ({
+					...f,
+					createdAt: new Date(f.createdAt),
+					updatedAt: new Date(f.updatedAt),
+					notes: notesMap.get(f.id) || [],
 				}));
-				setQuizQuestions(parsedQuestions);
+
+				setFolders(parsedFolders);
+				setLoadingProgress(70);
+				
+				// Create missing default folders efficiently
+				const existingFolderNames = new Set(parsedFolders.map(f => f.name));
+				const missingDefaultFolders = defaultFolders.filter(folder => !existingFolderNames.has(folder.name));
+				
+				if (missingDefaultFolders.length > 0) {
+					console.log('Creating missing default folders:', missingDefaultFolders.map(f => f.name));
+					// Create default folders in parallel
+					await Promise.all(
+						missingDefaultFolders.map(folder => 
+							createFolder(folder.name, folder.description).catch(error => {
+								console.error(`Failed to create default folder ${folder.name}:`, error);
+							})
+						)
+					);
+				}
+			} else {
+				// No folders exist, create all default folders in parallel
+				console.log('No folders found, creating default folders');
+				await Promise.all(
+					defaultFolders.map(folder => 
+						createFolder(folder.name, folder.description).catch(error => {
+							console.error(`Failed to create default folder ${folder.name}:`, error);
+						})
+					)
+				);
 			}
 
+			setLoadingProgress(80);
+			// Process quiz questions efficiently
+			if (saveQuizQuestions) {
+				setQuizQuestions(saveQuizQuestions);
+			}
+
+			// Process quiz results efficiently
 			if (quizResultsData.data) {
 				const parsedQuizResults = quizResultsData.data.map((result: any) => ({
 					...result,
@@ -143,13 +186,108 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 				}));
 				setQuizResults(parsedQuizResults);
 			}
+
+			setLoadingProgress(100);
+			console.timeEnd('loadLocalData');
+			
+			// Small delay to show "Ready!" message
+			await new Promise(resolve => setTimeout(resolve, 500));
+			
+			setIsLoadingData(false);
+			
+			// Clean up any orphaned quiz results after loading data (non-blocking)
+			setTimeout(() => {
+				cleanupOrphanedQuizResults();
+			}, 100);
 		} catch (error) {
 			console.error('Error loading local data:', error);
 			setFolders([]);
 			setQuizQuestions([]);
 			setQuizResults([]);
+			setIsLoadingData(false);
+			setLoadingProgress(0);
 		}
 	}, []);
+
+	// Clean up orphaned quiz results (results for folders with no notes)
+	const cleanupOrphanedQuizResults = useCallback(async () => {
+		try {
+			console.log('Cleaning up orphaned quiz results...');
+			
+			// Get all folders that have no notes
+			const foldersWithNoNotes = folders.filter(folder => folder.notes.length === 0);
+			
+			if (foldersWithNoNotes.length === 0) {
+				console.log('No orphaned quiz results to clean up');
+				return;
+			}
+			
+			const folderIdsToClean = foldersWithNoNotes.map(folder => folder.id);
+			console.log('Cleaning up quiz results for folders:', folderIdsToClean);
+			
+			// Delete quiz results for folders with no notes
+			const { error } = await supabase
+				.from('quiz_results')
+				.delete()
+				.in('folder_id', folderIdsToClean);
+			
+			if (error) {
+				console.error('Error cleaning up orphaned quiz results:', error);
+			} else {
+				// Update local state
+				setQuizResults(prevResults =>
+					prevResults.filter(result => !folderIdsToClean.includes(result.folder_id))
+				);
+				console.log('Successfully cleaned up orphaned quiz results');
+			}
+		} catch (error) {
+			console.error('Error in cleanupOrphanedQuizResults:', error);
+		}
+	}, [folders]);
+
+	// Load additional data on demand for better performance
+	const loadMoreData = useCallback(async (type: 'quiz_results' | 'quiz_questions' | 'notes', limit: number = 100) => {
+		try {
+			console.time(`loadMoreData-${type}`);
+			
+			switch (type) {
+				case 'quiz_results': {
+					const data = await supabase
+						.from('quiz_results')
+						.select('*')
+						.order('date', { ascending: false })
+						.range(quizResults.length, quizResults.length + limit - 1);
+					if (data.data) {
+						const newResults = data.data.map((result: any) => ({
+							...result,
+							date: new Date(result.date),
+						}));
+						setQuizResults(prev => [...prev, ...newResults]);
+					}
+					break;
+				}
+					
+				case 'quiz_questions': {
+					const data = await supabase
+						.from('quiz_questions')
+						.select('*')
+						.range(quizQuestions.length, quizQuestions.length + limit - 1);
+					if (data.data) {
+						setQuizQuestions(prev => [...prev, ...data.data]);
+					}
+					break;
+				}
+					
+				case 'notes':
+					// This would need to be implemented per folder
+					break;
+			}
+			
+			console.timeEnd(`loadMoreData-${type}`);
+		} catch (error) {
+			console.error(`Error loading more ${type}:`, error);
+		}
+	}, [quizResults.length, quizQuestions.length]);
 
 	// Save data to localStorage whenever folders change
 	const saveLocalData = useCallback((foldersData: Folder[]) => {
@@ -209,9 +347,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 				.select('*')
 				.eq('folder_id', folderId)
 				.order('date', { ascending: false });
-			
+
 			if (error) throw error;
-			
 			return data?.map((result: any) => ({
 				...result,
 				date: new Date(result.date),
@@ -255,7 +392,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 				.from('quiz_questions')
 				.delete()
 				.eq('folder_id', id);
-			
+
 			if (quizError) {
 				console.error('Error deleting quiz questions:', quizError);
 				// Continue with folder deletion even if quiz deletion fails
@@ -266,7 +403,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 				.from('quiz_results')
 				.delete()
 				.eq('folder_id', id);
-			
+
 			if (resultsError) {
 				console.error('Error deleting quiz results:', resultsError);
 				// Continue with folder deletion even if results deletion fails
@@ -283,12 +420,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 			setFolders(prevFolders => prevFolders.filter(folder => folder.id !== id));
 
 			// Update local state - remove quiz questions associated with this folder
-			setQuizQuestions(prevQuestions => 
+			setQuizQuestions(prevQuestions =>
 				prevQuestions.filter(question => question.folder_id !== id)
 			);
 
 			// Update local state - remove quiz results associated with this folder
-			setQuizResults(prevResults => 
+			setQuizResults(prevResults =>
 				prevResults.filter(result => result.folder_id !== id)
 			);
 
@@ -301,9 +438,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 			if (currentFolder && currentFolder.id === id) setCurrentFolder(null);
 			if (currentNote && currentNote.folder_id === id) setCurrentNote(null);
 
-			toast({ 
-				title: 'Folder deleted', 
-				description: `Folder, all its notes, quiz questions, and quiz results have been deleted successfully.` 
+			toast({
+				title: 'Folder deleted',
+				description: `Folder, all its notes, quiz questions, and quiz results have been deleted successfully.`
 			});
 		} catch (error) {
 			console.error('Error deleting folder:', error);
@@ -413,7 +550,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 				.from('quiz_questions')
 				.delete()
 				.eq('note_id', noteId);
-			
+
 			if (quizError) {
 				console.error('Error deleting quiz questions:', quizError);
 				// Continue with note deletion even if quiz deletion fails
@@ -436,7 +573,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 			);
 
 			// Update local state - remove quiz questions associated with this note
-			setQuizQuestions(prevQuestions => 
+			setQuizQuestions(prevQuestions =>
 				prevQuestions.filter(question => question.note_id !== noteId)
 			);
 
@@ -448,13 +585,274 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 			// Clear current note if it's the one being deleted
 			if (currentNote && currentNote.id === noteId) setCurrentNote(null);
 
-			toast({ 
-				title: 'Note deleted', 
-				description: 'Note and associated quiz questions have been deleted successfully.' 
+			// Check if this was the last note in the folder
+			const updatedFolder = folders.find(f => f.id === folderId);
+			const remainingNotes = updatedFolder ? updatedFolder.notes.filter(note => note.id !== noteId) : [];
+			
+			// If no notes remain in the folder, clean up quiz results
+			if (remainingNotes.length === 0) {
+				console.log('No notes remaining in folder, cleaning up quiz results...');
+				const { error: resultsError } = await supabase
+					.from('quiz_results')
+					.delete()
+					.eq('folder_id', folderId);
+
+				if (resultsError) {
+					console.error('Error deleting quiz results:', resultsError);
+				} else {
+					// Update local state - remove quiz results for this folder
+					setQuizResults(prevResults =>
+						prevResults.filter(result => result.folder_id !== folderId)
+					);
+					
+					toast({
+						title: 'Note deleted',
+						description: 'Note, associated quiz questions, and quiz history have been deleted successfully.'
+					});
+					return; // Early return to avoid duplicate toast
+				}
+			}
+
+			toast({
+				title: 'Note deleted',
+				description: 'Note and associated quiz questions have been deleted successfully.'
 			});
 		} catch (error) {
 			console.error('Error deleting note:', error);
 			toast({ title: 'Error', description: 'Failed to delete note. Please try again.', variant: 'destructive' });
+		}
+	};
+
+	const generateMultipleChoiceQuiz = async (folderId: string, selectedNoteIds?: string[]): Promise<QuizQuestion[]> => {
+		setIsGeneratingQuiz(true);
+		try {
+			const folder = folders.find(f => f.id === folderId);
+
+			if (!folder || !folder.notes.length) {
+				toast({
+					title: 'No content to quiz',
+					description: 'This folder has no notes to generate quiz questions from.',
+					variant: 'destructive'
+				});
+				return [];
+			}
+			
+			// Filter notes based on selection
+			const notesToUse = selectedNoteIds
+				? folder.notes.filter(note => selectedNoteIds.includes(note.id))
+				: folder.notes;
+
+			const noteContents = notesToUse.map(note => ({
+				id: note.id,
+				title: note.title,
+				content: note.content
+			}));
+			const questionsWithMeta: QuizQuestion[] = [];
+
+			// Add delay between API calls to avoid rate limiting
+			const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+			for (let i = 0; i < noteContents.length; i++) {
+				const note = noteContents[i];
+
+				try {
+					// Add delay between requests (except for the first one)
+					if (i > 0) {
+						await delay(1000); // 1 second delay between requests
+					}
+
+					const res = await fetch("https://api.openai.com/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Authorization": `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
+							"Content-Type": "application/json"
+						},
+						body: JSON.stringify({
+							model: "gpt-4o-mini",
+							messages: [
+								{
+									role: "system",
+									content:
+										`
+											You are an expert multiple choice quiz generator. For the content below, create 5 high-quality multiple choice questions with 4 options each.
+
+											Multiple Choice Question Guidelines:
+											- Each question must have exactly 4 options (A, B, C, D)
+											- All options should be plausible and related to the content
+											- Avoid obvious wrong answers that are clearly unrelated
+											- Test different levels of understanding:
+											  * Recall: Basic facts and definitions
+											  * Comprehension: Understanding concepts
+											  * Application: Using knowledge in new situations
+											  * Analysis: Breaking down complex information
+											- Include detailed explanations for why the correct answer is right
+											- Make questions engaging and educational
+
+											Format as a JSON array with 5 objects:
+											{
+												"question": "Clear, specific question text",
+												"answer": "The correct answer (must match one of the options exactly)",
+												"hint": "Helpful hint to guide the student",
+												"noteId": "ID of the source note",
+												"type": "multipleChoice",
+												"options": ["Option A", "Option B", "Option C", "Option D"],
+												"front": "Question text (same as question)",
+												"back": "Correct answer (same as answer)",
+												"tags": ["concept", "difficulty", "multipleChoice"],
+												"explanation": "Detailed explanation of why the answer is correct and why others are wrong",
+												"blanks": [],
+												"correctOrder": [],
+												"memoryPalace": { "location": "", "visualization": "", "associations": [] },
+												"mnemonics": [],
+												"relatedQuestions": []
+											}
+
+											Content to generate questions from:
+											"${JSON.stringify(note)}"
+										`
+								},
+								{
+									role: "user",
+									content: JSON.stringify(note)
+								}
+							]
+						})
+					});
+
+					if (res.status === 429) {
+						toast({
+							title: 'Rate limit exceeded',
+							description: 'Please wait a moment and try again. Consider selecting fewer notes.',
+							variant: 'destructive'
+						});
+						setIsGeneratingQuiz(false);
+						return [];
+					}
+
+					if (!res.ok) {
+						throw new Error(`API request failed with status ${res.status}`);
+					}
+					const data = await res.json();
+					const cleaned = data.choices[0].message.content
+						.replace(/```json|```js|```/gi, '') // Remove code block markers
+						.trim();
+					// Parse the cleaned JSON string - expect an array of questions
+					const questionsArray = JSON.parse(cleaned);
+
+					// Ensure we have an array
+					const questions = Array.isArray(questionsArray) ? questionsArray : [questionsArray];
+
+					// Process each question in the array
+					for (const question of questions) {
+						let options = Array.isArray(question.options) ? [...question.options] : [];
+						const answer = typeof question.answer === 'string' ? question.answer : 
+							typeof question.back === 'string' ? question.back : 'No answer';
+						
+						// Ensure answer is in options for multipleChoice and format properly
+						if (question.type === 'multipleChoice') {
+							// Remove any empty or null options
+							options = options.filter(opt => opt && opt.trim() !== '');
+							
+							// Ensure we have exactly 4 options
+							while (options.length < 4) {
+								options.push(`Option ${options.length + 1}`);
+							}
+							
+							// Ensure the correct answer is in the options
+							if (!options.includes(answer)) {
+								// Replace a random option with the correct answer
+								const randomIndex = Math.floor(Math.random() * options.length);
+								options[randomIndex] = answer;
+							}
+							
+							// Shuffle the options
+							options = options.sort(() => Math.random() - 0.5);
+						}
+						
+						// Add folder_id, user_id, and all required QuizQuestion fields to each question
+						const now = new Date();
+						questionsWithMeta.push({
+							id: `temp-${Date.now()}-${Math.random()}`, // Temporary ID for type safety
+							question: question.question,
+							answer: question.answer,
+							front: question.front,
+							back: question.back,
+							note_id: question.noteId,
+							type: question.type,
+							options: options,
+							folder_id: folderId,
+							user_id: MOCK_USER_ID,
+							tags: getTagsForQuestion(question),
+							hint: question.hint || '',
+							explanation: question.explanation || '',
+							blanks: question.blanks || [],
+							correctOrder: question.correctOrder || [],
+							difficulty: getDifficultyForQuestion(question),
+							learningMetrics: {
+								totalReviews: 0,
+								correctStreak: 0,
+								longestStreak: 0,
+								averageResponseTime: 0,
+								difficultyRating: 1,
+								retentionRate: 0,
+								lastAccuracy: 0
+							},
+							easeFactor: 2.5,
+							interval: 1,
+							repetitions: 0,
+							lastReviewed: now,
+							nextReviewDate: now,
+							stability: 0,
+							difficulty_sr: 0,
+							retrievability: 1,
+							lapses: 0,
+							suspended: false,
+							buried: false,
+							memoryPalace: question.memoryPalace || undefined,
+							mnemonics: question.mnemonics || [],
+							relatedQuestions: question.relatedQuestions || [],
+							createdAt: now,
+							updatedAt: now,
+							source: 'generated',
+							confidence: 3
+						});
+					}
+				} catch (error) {
+					console.error(`Error generating questions for note ${note.id}:`, error);
+					toast({
+						title: 'Error generating questions',
+						description: `Failed to generate questions for "${note.title}". Please try again.`,
+						variant: 'destructive'
+					});
+				}
+			}
+
+			// Save all generated questions to the database
+			for (const question of questionsWithMeta) {
+				try {
+					await createQuestion(folderId, question);
+				} catch (error) {
+					console.error('Error saving question:', error);
+				}
+			}
+
+			toast({
+				title: 'Multiple Choice Quiz Generated',
+				description: `Successfully generated ${questionsWithMeta.length} multiple choice questions!`,
+				duration: 3000
+			});
+
+			setIsGeneratingQuiz(false);
+			return questionsWithMeta;
+		} catch (error) {
+			console.error('Error generating multiple choice quiz:', error);
+			toast({
+				title: 'Error',
+				description: 'Failed to generate multiple choice quiz. Please try again.',
+				variant: 'destructive'
+			});
+			setIsGeneratingQuiz(false);
+			return [];
 		}
 	};
 
@@ -508,28 +906,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 									role: "system",
 									content:
 										`
-                     You are a quiz generator. For a journal entry below, create 3 multiple-choice questions with 4 options. Format as a JSON array with 3 objects, where each object has the following fields:
-                     {
-                       "question": "Question text",
-                       "answer": "Correct answer",
-                       "hint": "Hint (optional)",
-                       "noteId": "ID of the source note",
-                       "type": "multipleChoice",
-                       "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
-                       "front": "Question text (same as question)",
-                       "back": "Correct answer (same as answer)",
-                       "tags": ["tag1", "tag2", "type"],
-                       "explanation": "Detailed explanation (optional)",
-                       "blanks": [],
-                       "correctOrder": [],
-                       "memoryPalace": { "location": "", "visualization": "", "associations": [] },
-                       "mnemonics": [],
-                       "relatedQuestions": []
-                     }
-                     Do not include fields like learningMetrics, difficulty, or spaced repetition fields; these will be filled by the app. Output only a JSON array of 3 objects.
-                     Journal entry:
-                     "${JSON.stringify(note)}"
-                    `
+											You are an expert quiz generator. For the content below, create 5 high-quality questions with a focus on multiple choice questions. Generate a mix of question types:
+
+											Question Types to Generate:
+											- 3 Multiple Choice questions (with 4 options each)
+											- 1 Fill-in-the-blank question
+											- 1 True/False question
+
+											For Multiple Choice questions:
+											- Make sure all 4 options are plausible and related to the content
+											- Avoid obvious wrong answers
+											- Include explanations for why the correct answer is right
+											- Test different levels of understanding (recall, comprehension, application)
+
+											Format as a JSON array with 5 objects, where each object has these fields:
+											{
+												"question": "Question text",
+												"answer": "Correct answer",
+												"hint": "Helpful hint (optional)",
+												"noteId": "ID of the source note",
+												"type": "multipleChoice | fillInBlank | trueFalse",
+												"options": ["Option A", "Option B", "Option C", "Option D"], // Only for multipleChoice
+												"front": "Question text (same as question)",
+												"back": "Correct answer (same as answer)",
+												"tags": ["concept", "difficulty", "type"],
+												"explanation": "Detailed explanation of why the answer is correct",
+												"blanks": [], // For fillInBlank questions
+												"correctOrder": [],
+												"memoryPalace": { "location": "", "visualization": "", "associations": [] },
+												"mnemonics": [],
+												"relatedQuestions": []
+											}
+
+											Guidelines:
+											- Questions should test understanding, not just memorization
+											- Include a mix of factual, conceptual, and application questions
+											- Make multiple choice distractors plausible but clearly wrong
+											- Provide clear, educational explanations
+											- Do not include learningMetrics, difficulty, or spaced repetition fields
+
+											Content to generate questions from:
+											"${JSON.stringify(note)}"
+										`
 								},
 								{
 									role: "user",
@@ -565,10 +983,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 					// Process each question in the array
 					for (const question of questions) {
 						let options = Array.isArray(question.options) ? [...question.options] : [];
-						const answer = typeof question.back === 'string' ? question.back : 'No answer';
-						// Ensure answer is in options for multipleChoice
-						if (question.type === 'multipleChoice' && !options.includes(answer)) {
-							options.push(answer);
+						const answer = typeof question.answer === 'string' ? question.answer : 
+							typeof question.back === 'string' ? question.back : 'No answer';
+						
+						// Ensure answer is in options for multipleChoice and format properly
+						if (question.type === 'multipleChoice') {
+							// Remove any empty or null options
+							options = options.filter(opt => opt && opt.trim() !== '');
+							
+							// Ensure we have exactly 4 options
+							while (options.length < 4) {
+								options.push(`Option ${options.length + 1}`);
+							}
+							
+							// Ensure the correct answer is in the options
+							if (!options.includes(answer)) {
+								// Replace a random option with the correct answer
+								const randomIndex = Math.floor(Math.random() * options.length);
+								options[randomIndex] = answer;
+							}
+							
+							// Shuffle the options
 							options = options.sort(() => Math.random() - 0.5);
 						}
 						// Add folder_id, user_id, and all required QuizQuestion fields to each question, and add Anki-compatible fields
@@ -888,46 +1323,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 		}
 	};
 
-	const addQuestion = (folderId: string, question: Omit<QuizQuestion, 'id' | 'user_id'>): QuizQuestion => {
-		const newQuestion: QuizQuestion = {
-			...question,
-			id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-			user_id: 'local-user-123',
-			difficulty: question.difficulty || { level: 'beginner', cognitiveLoad: 'low', timeEstimate: 30 },
-			learningMetrics: question.learningMetrics || {
-				totalReviews: 0,
-				correctStreak: 0,
-				longestStreak: 0,
-				averageResponseTime: 0,
-				difficultyRating: 3,
-				retentionRate: 0,
-				lastAccuracy: 0
-			},
-			repetitions: question.repetitions || 0,
-			stability: question.stability || 0,
-			difficulty_sr: question.difficulty_sr || 0,
-			retrievability: question.retrievability || 0,
-			lapses: question.lapses || 0,
-			suspended: question.suspended || false,
-			buried: question.buried || false,
-			createdAt: question.createdAt || new Date(),
-			updatedAt: question.updatedAt || new Date(),
-			source: question.source || 'manual',
-			confidence: question.confidence || 3
-		};
 
-		const questions = getFolderQuestions(folderId);
-		const updatedQuestions = [...questions, newQuestion];
-
-		localStorage.setItem(`quiz-questions-${folderId}`, JSON.stringify(updatedQuestions));
-
-		// Update current quiz if it's loaded for this folder
-		if (currentQuiz && currentFolder?.id === folderId) {
-			setCurrentQuiz([...currentQuiz, newQuestion]);
-		}
-
-		return newQuestion;
-	};
 
 	// Utility: Determine difficulty for a question
 	function getDifficultyForQuestion(q: any): QuestionDifficulty {
@@ -962,8 +1358,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 		currentFolder,
 		currentNote,
 		currentQuiz,
+		quizQuestions,
 		quizResults,
 		isLoadingData,
+		loadingProgress,
+		cleanupOrphanedQuizResults,
 		createFolder,
 		getFolder,
 		getQuizes,
@@ -977,6 +1376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 		deleteNote,
 		setCurrentNote,
 		generateQuiz,
+		generateMultipleChoiceQuiz,
 		saveQuizResult,
 		updateQuestionSpacedRepetitionData,
 		isGeneratingQuiz,
@@ -985,7 +1385,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 		updateQuestion,
 		createQuestion,
 		deleteQuestion,
-		addQuestion,
 		// New category/entry system
 		categories,
 		entries,
@@ -993,14 +1392,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 		currentEntry,
 		createCategory: async () => null,
 		getCategory: () => undefined,
-		updateCategory: async () => {},
-		deleteCategory: async () => {},
-		setCurrentCategory: () => {},
+		updateCategory: async () => { },
+		deleteCategory: async () => { },
+		setCurrentCategory: () => { },
 		createEntry: async () => null,
 		getEntry: () => undefined,
-		updateEntry: async () => {},
-		deleteEntry: async () => {},
-		setCurrentEntry: () => {},
+		updateEntry: async () => { },
+		deleteEntry: async () => { },
+		setCurrentEntry: () => { },
 	};
 
 	return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -54,7 +54,7 @@ const QuizzesPage: React.FC = () => {
                     </div>
                     <Button 
                       size="sm" 
-                      onClick={() => navigate(`/folders/${result.folderId}/quiz`)}
+                      onClick={() => navigate(`/folders/${result.folder_id}/quiz`)}
                     >
                       Retake Quiz
                     </Button>

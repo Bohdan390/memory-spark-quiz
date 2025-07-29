@@ -11,7 +11,7 @@ import { QuizQuestion, QuizResult } from '@/types/models';
 const QuizPage: React.FC = () => {
   const { folderId } = useParams<{ folderId: string }>();
   const navigate = useNavigate();
-  const { getFolder, generateQuiz, saveQuizResult, isGeneratingQuiz, getQuizes } = useApp();
+  const { getFolder, generateQuiz, saveQuizResult, isGeneratingQuiz, quizQuestions } = useApp();
   const [quizFinished, setQuizFinished] = useState(false);
   const [quizResults, setQuizResults] = useState<Partial<QuizResult>>({});
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
@@ -31,12 +31,24 @@ const QuizPage: React.FC = () => {
     }
 
     if (folderId) {
-      const quizes = getQuizes(folderId);
-      setQuestions(quizes)
-      if (quizes.length > 0) setIsLoading(false);
+      const quizes = quizQuestions.filter(q => q.folder_id === folderId);
+      console.log(`[QuizPage] Loaded ${quizes.length} quizzes for folder ${folderId}:`, quizes);
+      setQuestions(quizes);
+      
+      // Set loading to false regardless of whether quizzes exist
+      // If no quizzes exist, we'll show a message to generate them
+      setIsLoading(false);
     }
-    // loadQuiz();
-  }, [folder, folderId, navigate, generateQuiz]);
+  }, [folder, folderId, navigate]);
+
+  // Watch for changes in quizQuestions and update local state
+  useEffect(() => {
+    if (folderId) {
+      const quizes = quizQuestions.filter(q => q.folder_id === folderId);
+      console.log(`[QuizPage] Quiz questions updated: ${quizes.length} quizzes for folder ${folderId}`);
+      setQuestions(quizes);
+    }
+  }, [quizQuestions, folderId]);
 
   if (!folder) {
     return null; // The useEffect will handle navigation
@@ -146,6 +158,28 @@ const QuizPage: React.FC = () => {
               setQuizFinished(false);
             }}
           />
+        ) : questions.length === 0 ? (
+          <div className="text-center space-y-6 py-12">
+            <div className="space-y-4">
+              <div className="w-20 h-20 mx-auto bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-semibold">No Quiz Questions Available</h3>
+                <p className="text-muted-foreground max-w-md mx-auto">
+                  You need to generate quiz questions first. Go back to the folder and click "Generate Quiz" to create questions from your notes.
+                </p>
+              </div>
+              <Button 
+                onClick={() => navigate(`/folders/${folderId}`)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Back to Folder
+              </Button>
+            </div>
+          </div>
         ) : (
           <QuizCard 
             questions={questions}

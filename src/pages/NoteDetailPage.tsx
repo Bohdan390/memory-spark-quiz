@@ -3,9 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/context/AppContext';
 import NoteEditor from '@/components/notes/NoteEditor';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const NoteDetailPage: React.FC = () => {
   const { folderId, noteId } = useParams<{ folderId: string; noteId: string }>();
@@ -13,6 +14,8 @@ const NoteDetailPage: React.FC = () => {
   const { getFolder, getNote, createNote, updateNote, deleteNote } = useApp();
   const { toast } = useToast();
   const [isNew] = useState(noteId === 'new');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   console.log('[NoteDetailPage] Loaded. folderId from URL:', folderId, 'noteId from URL:', noteId, 'isNew:', isNew);
   
@@ -47,26 +50,47 @@ const NoteDetailPage: React.FC = () => {
   
   const handleSaveNote = async (title: string, content: string) => {
     if (isNew) {
-      createNote(folder.id, title, content);
-      navigate(`/folders/${folderId}`);
+      try {
+        const newNote = await createNote(folder.id, title, content);
+        if (newNote) {
+          navigate(`/folders/${folderId}`);
+        }
+      } catch (error) {
+        console.error('Error creating note:', error);
+        // Error handling is already done in the createNote function
+      }
     } else if (note) {
-     const success = await updateNote(folder.id, note.id, { title, content });
-     if (success) {
-      navigate(`/folders/${folderId}`);
-     }
+      try {
+        const success = await updateNote(folder.id, note.id, { title, content });
+        if (success) {
+          navigate(`/folders/${folderId}`);
+        }
+      } catch (error) {
+        console.error('Error updating note:', error);
+        // Error handling is already done in the updateNote function
+      }
     }
   };
   
   const handleDeleteNote = () => {
     if (!note) return;
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteNote = async () => {
+    if (!note) return;
     
-    if (confirm(`Are you sure you want to delete the note "${note.title}"?`)) {
-      deleteNote(folder.id, note.id);
+    setIsDeleting(true);
+    try {
+      await deleteNote(folder.id, note.id);
       navigate(`/folders/${folderId}`);
-      toast({
-        title: 'Note deleted',
-        description: 'Your note has been deleted successfully'
-      });
+      // The toast message is already handled in the deleteNote function
+    } catch (error) {
+      // Error handling is already done in the deleteNote function
+      console.error('Error in handleDeleteNote:', error);
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
     }
   };
   
@@ -102,6 +126,33 @@ const NoteDetailPage: React.FC = () => {
         isNewNote={isNew}
         folderName={folder.name}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Note</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{note?.title}"? This action cannot be undone and will also delete all quiz questions associated with this note.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteNote} disabled={isDeleting}>
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

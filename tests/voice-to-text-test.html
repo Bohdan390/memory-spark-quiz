@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice-to-Text Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+        .test-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .test-description {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .test-result {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .voice-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .listening {
+            background: #d4edda;
+            color: #155724;
+        }
+        .ready {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        .error-status {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            resize: vertical;
+        }
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s ease;
+        }
+        .language-select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .settings {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .setting-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice-to-Text Test Suite</h1>
+        <p>This page tests the voice-to-text functionality for the journal app.</p>
+
+        <div class="test-section">
+            <div class="test-title">1. Browser Support Test</div>
+            <div class="test-description">Check if the browser supports speech recognition.</div>
+            <div id="browserSupport" class="test-result info">Checking browser support...</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">2. Voice Recognition Test</div>
+            <div class="test-description">Test basic voice recognition functionality.</div>
+            
+            <div class="voice-controls">
+                <button id="startBtn" onclick="startRecognition()">Start Listening</button>
+                <button id="stopBtn" onclick="stopRecognition()" disabled>Stop Listening</button>
+                <button onclick="clearTranscript()">Clear Text</button>
+                <button onclick="copyToClipboard()">Copy Text</button>
+            </div>
+
+            <div id="statusIndicator" class="status-indicator ready">
+                <span id="statusIcon">🎤</span>
+                <span id="statusText">Ready</span>
+            </div>
+
+            <div id="confidenceBar" class="confidence-bar" style="display: none;">
+                <div id="confidenceFill" class="confidence-fill" style="width: 0%"></div>
+            </div>
+
+            <textarea id="transcriptArea" placeholder="Transcribed text will appear here..."></textarea>
+            
+            <div id="recognitionResult" class="test-result info">Click "Start Listening" to begin</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">3. Language Settings</div>
+            <div class="test-description">Test different language recognition.</div>
+            
+            <select id="languageSelect" class="language-select" onchange="changeLanguage()">
+                <option value="en-US">English (US)</option>
+                <option value="en-GB">English (UK)</option>
+                <option value="es-ES">Spanish</option>
+                <option value="fr-FR">French</option>
+                <option value="de-DE">German</option>
+                <option value="it-IT">Italian</option>
+                <option value="pt-BR">Portuguese (Brazil)</option>
+                <option value="ja-JP">Japanese</option>
+                <option value="ko-KR">Korean</option>
+                <option value="zh-CN">Chinese (Simplified)</option>
+                <option value="ru-RU">Russian</option>
+                <option value="ar-SA">Arabic</option>
+                <option value="hi-IN">Hindi</option>
+            </select>
+            
+            <div id="languageResult" class="test-result info">Current language: English (US)</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">4. Recognition Settings</div>
+            <div class="test-description">Configure recognition behavior.</div>
+            
+            <div class="settings">
+                <div class="setting-item">
+                    <input type="checkbox" id="continuousMode" checked>
+                    <label for="continuousMode">Continuous Recognition</label>
+                </div>
+                <div class="setting-item">
+                    <input type="checkbox" id="interimResults" checked>
+                    <label for="interimResults">Interim Results</label>
+                </div>
+            </div>
+            
+            <div id="settingsResult" class="test-result info">Settings applied</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">5. Error Handling Test</div>
+            <div class="test-description">Test error scenarios and recovery.</div>
+            
+            <button onclick="testNoSpeech()">Test No Speech</button>
+            <button onclick="testNetworkError()">Test Network Error</button>
+            <button onclick="testPermissionDenied()">Test Permission Denied</button>
+            
+            <div id="errorResult" class="test-result info">No errors yet</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">6. Performance Test</div>
+            <div class="test-description">Test recognition performance and accuracy.</div>
+            
+            <button onclick="startPerformanceTest()">Start Performance Test</button>
+            <button onclick="stopPerformanceTest()">Stop Performance Test</button>
+            
+            <div id="performanceResult" class="test-result info">Performance test not started</div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let recognition = null;
+        let isListening = false;
+        let performanceTest = null;
+        let testResults = [];
+
+        // Check browser support
+        function checkBrowserSupport() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const isSupported = !!SpeechRecognition;
+            
+            const resultDiv = document.getElementById('browserSupport');
+            if (isSupported) {
+                resultDiv.className = 'test-result success';
+                resultDiv.innerHTML = '✅ Speech recognition is supported in this browser';
+                initializeRecognition();
+            } else {
+                resultDiv.className = 'test-result error';
+                resultDiv.innerHTML = '❌ Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.';
+            }
+        }
+
+        // Initialize speech recognition
+        function initializeRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            
+            recognition.continuous = document.getElementById('continuousMode').checked;
+            recognition.interimResults = document.getElementById('interimResults').checked;
+            recognition.lang = document.getElementById('languageSelect').value;
+
+            recognition.onstart = () => {
+                isListening = true;
+                updateStatus('listening', 'Listening...', '🎤');
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('confidenceBar').style.display = 'block';
+                updateResult('Recognition started successfully', 'success');
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+                let maxConfidence = 0;
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    const confidence = event.results[i][0].confidence;
+                    
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                    
+                    maxConfidence = Math.max(maxConfidence, confidence);
+                }
+
+                const transcriptArea = document.getElementById('transcriptArea');
+                transcriptArea.value += finalTranscript + interimTranscript;
+                
+                // Update confidence bar
+                const confidenceFill = document.getElementById('confidenceFill');
+                const confidencePercent = Math.round(maxConfidence * 100);
+                confidenceFill.style.width = confidencePercent + '%';
+                
+                if (performanceTest) {
+                    testResults.push({
+                        confidence: maxConfidence,
+                        transcript: finalTranscript,
+                        timestamp: Date.now()
+                    });
+                }
+            };
+
+            recognition.onerror = (event) => {
+                let errorMessage = 'An error occurred during speech recognition.';
+                
+                switch (event.error) {
+                    case 'no-speech':
+                        errorMessage = 'No speech was detected. Please try again.';
+                        break;
+                    case 'audio-capture':
+                        errorMessage = 'No microphone was found. Please check your microphone settings.';
+                        break;
+                    case 'not-allowed':
+                        errorMessage = 'Microphone access was denied. Please allow microphone access and try again.';
+                        break;
+                    case 'network':
+                        errorMessage = 'Network error occurred. Please check your internet connection.';
+                        break;
+                    case 'service-not-allowed':
+                        errorMessage = 'Speech recognition service is not allowed.';
+                        break;
+                    case 'bad-grammar':
+                        errorMessage = 'Speech recognition grammar error.';
+                        break;
+                    case 'language-not-supported':
+                        errorMessage = 'The selected language is not supported.';
+                        break;
+                }
+
+                updateStatus('error', 'Error: ' + event.error, '❌');
+                updateResult(errorMessage, 'error');
+                stopRecognition();
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                updateStatus('ready', 'Ready', '🎤');
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('confidenceBar').style.display = 'none';
+                
+                // Auto-restart if continuous mode is enabled
+                if (document.getElementById('continuousMode').checked && isListening) {
+                    setTimeout(() => {
+                        startRecognition();
+                    }, 100);
+                }
+            };
+        }
+
+        // Update status indicator
+        function updateStatus(type, text, icon) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const statusIcon = document.getElementById('statusIcon');
+            
+            statusIndicator.className = 'status-indicator ' + type;
+            statusText.textContent = text;
+            statusIcon.textContent = icon;
+        }
+
+        // Update result message
+        function updateResult(message, type) {
+            const resultDiv = document.getElementById('recognitionResult');
+            resultDiv.className = 'test-result ' + type;
+            resultDiv.textContent = message;
+        }
+
+        // Start recognition
+        function startRecognition() {
+            if (!recognition) {
+                updateResult('Recognition not initialized', 'error');
+                return;
+            }
+
+            try {
+                // Reinitialize with current settings
+                initializeRecognition();
+                recognition.start();
+            } catch (error) {
+                console.error('Error starting speech recognition:', error);
+                updateResult('Failed to start speech recognition: ' + error.message, 'error');
+            }
+        }
+
+        // Stop recognition
+        function stopRecognition() {
+            if (recognition && isListening) {
+                recognition.stop();
+            }
+        }
+
+        // Clear transcript
+        function clearTranscript() {
+            document.getElementById('transcriptArea').value = '';
+            updateResult('Transcript cleared', 'info');
+        }
+
+        // Copy to clipboard
+        async function copyToClipboard() {
+            const text = document.getElementById('transcriptArea').value;
+            if (!text) {
+                updateResult('No text to copy', 'error');
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(text);
+                updateResult('Text copied to clipboard', 'success');
+            } catch (error) {
+                updateResult('Failed to copy text: ' + error.message, 'error');
+            }
+        }
+
+        // Change language
+        function changeLanguage() {
+            const language = document.getElementById('languageSelect').value;
+            const languageNames = {
+                'en-US': 'English (US)',
+                'en-GB': 'English (UK)',
+                'es-ES': 'Spanish',
+                'fr-FR': 'French',
+                'de-DE': 'German',
+                'it-IT': 'Italian',
+                'pt-BR': 'Portuguese (Brazil)',
+                'ja-JP': 'Japanese',
+                'ko-KR': 'Korean',
+                'zh-CN': 'Chinese (Simplified)',
+                'ru-RU': 'Russian',
+                'ar-SA': 'Arabic',
+                'hi-IN': 'Hindi'
+            };
+
+            document.getElementById('languageResult').textContent = 'Current language: ' + languageNames[language];
+            
+            if (isListening) {
+                stopRecognition();
+                setTimeout(() => {
+                    startRecognition();
+                }, 200);
+            }
+        }
+
+        // Test error scenarios
+        function testNoSpeech() {
+            updateResult('Testing no speech scenario...', 'info');
+            // This would normally be triggered by the browser
+        }
+
+        function testNetworkError() {
+            updateResult('Testing network error scenario...', 'info');
+            // This would normally be triggered by the browser
+        }
+
+        function testPermissionDenied() {
+            updateResult('Testing permission denied scenario...', 'info');
+            // This would normally be triggered by the browser
+        }
+
+        // Performance test
+        function startPerformanceTest() {
+            testResults = [];
+            performanceTest = setInterval(() => {
+                if (testResults.length > 0) {
+                    const avgConfidence = testResults.reduce((sum, result) => sum + result.confidence, 0) / testResults.length;
+                    const totalWords = testResults.reduce((sum, result) => sum + result.transcript.split(' ').length, 0);
+                    
+                    document.getElementById('performanceResult').innerHTML = `
+                        <div class="test-result success">
+                            <strong>Performance Test Results:</strong><br>
+                            Average Confidence: ${(avgConfidence * 100).toFixed(1)}%<br>
+                            Total Words Recognized: ${totalWords}<br>
+                            Test Duration: ${testResults.length * 2} seconds
+                        </div>
+                    `;
+                }
+            }, 2000);
+            
+            updateResult('Performance test started. Speak for 30 seconds...', 'info');
+        }
+
+        function stopPerformanceTest() {
+            if (performanceTest) {
+                clearInterval(performanceTest);
+                performanceTest = null;
+                updateResult('Performance test stopped', 'info');
+            }
+        }
+
+        // Settings change handlers
+        document.getElementById('continuousMode').addEventListener('change', function() {
+            document.getElementById('settingsResult').textContent = 'Continuous mode: ' + (this.checked ? 'enabled' : 'disabled');
+        });
+
+        document.getElementById('interimResults').addEventListener('change', function() {
+            document.getElementById('settingsResult').textContent = 'Interim results: ' + (this.checked ? 'enabled' : 'disabled');
+        });
+
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            checkBrowserSupport();
+        });
+    </script>
+</body>
+</html> 

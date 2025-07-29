@@ -93,7 +93,7 @@ npm run dev
 - [ ] View quiz history
 - [ ] Edit quiz questions
 - [ ] Delete quiz questions
-- [ ] Add manual quiz questions
+
 
 #### 🤖 **AI Integration**
 - [ ] Ollama service detection

@@ -1,18 +1,32 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, BookOpen, Briefcase, Search, Folder as FolderIcon } from 'lucide-react';
+import { Plus, BookOpen, Briefcase, Search, Folder as FolderIcon, Trash2, Edit, MoreVertical, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useApp } from '@/context/AppContext';
+import { useToast } from '@/components/ui/use-toast';
+import { CreateFolderModal } from '@/components/ui/create-folder-modal';
 
 const FoldersPage = () => {
   const navigate = useNavigate();
-  const { folders, createFolder } = useApp();
+  const { folders, createFolder, deleteFolder, updateFolder } = useApp();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState<any>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createModalType, setCreateModalType] = useState<'journal' | 'work' | 'general'>('general');
 
   // Categorize folders by simulating journal vs work types
   const journalFolders = folders.filter(folder => 
@@ -52,25 +66,106 @@ const FoldersPage = () => {
     folder.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleCreateJournalFolder = async () => {
-    const newFolder = await createFolder(
-      `Journal ${new Date().toLocaleDateString()}`,
-      'Personal journal entries and thoughts'
-    );
+  const handleCreateJournalFolder = () => {
+    setCreateModalType('journal');
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCreateWorkFolder = () => {
+    setCreateModalType('work');
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCreateGeneralFolder = () => {
+    setCreateModalType('general');
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCreateFolder = async (name: string, description?: string) => {
+    let finalName = name;
+    let finalDescription = description;
+
+    // Pre-fill based on type if no description provided
+    if (!finalDescription) {
+      switch (createModalType) {
+        case 'journal':
+          finalDescription = 'Personal journal entries and thoughts';
+          break;
+        case 'work':
+          finalDescription = 'Professional notes and project documentation';
+          break;
+        default:
+          finalDescription = 'General purpose folder';
+      }
+    }
+
+    const newFolder = await createFolder(finalName, finalDescription);
     
     if (newFolder) {
       navigate(`/folders/${newFolder.id}`);
     }
   };
 
-  const handleCreateWorkFolder = async () => {
-    const newFolder = await createFolder(
-      `Work Notes ${new Date().toLocaleDateString()}`,
-      'Professional notes and project documentation'
-    );
+  const handleDeleteFolder = (folder: any) => {
+    setSelectedFolder(folder);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteFolder = async () => {
+    if (!selectedFolder) return;
     
-    if (newFolder) {
-      navigate(`/folders/${newFolder.id}`);
+    setIsDeleting(true);
+    try {
+      await deleteFolder(selectedFolder.id);
+      toast({
+        title: 'Folder deleted',
+        description: `"${selectedFolder.name}" has been deleted successfully`
+      });
+      setDeleteDialogOpen(false);
+      setSelectedFolder(null);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete folder. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleEditFolder = (folder: any) => {
+    setSelectedFolder(folder);
+    setEditName(folder.name);
+    setEditDescription(folder.description || '');
+    setEditDialogOpen(true);
+  };
+
+  const confirmEditFolder = async () => {
+    if (!selectedFolder || !editName.trim()) return;
+    
+    setIsEditing(true);
+    try {
+      await updateFolder(selectedFolder.id, {
+        name: editName.trim(),
+        description: editDescription.trim()
+      });
+      toast({
+        title: 'Folder updated',
+        description: `"${editName}" has been updated successfully`
+      });
+      setEditDialogOpen(false);
+      setSelectedFolder(null);
+      setEditName('');
+      setEditDescription('');
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update folder. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsEditing(false);
     }
   };
 
@@ -83,7 +178,7 @@ const FoldersPage = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">My Knowledge Base</h1>
+          <h1 className="text-3xl font-display font-bold text-foreground">My Knowledge Base</h1>
           <p className="text-muted-foreground mt-2">
             Organize your journal entries and work notes, then quiz yourself to improve retention
           </p>
@@ -121,7 +216,7 @@ const FoldersPage = () => {
 
         <TabsContent value="journal" className="mt-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Journal Entries</h2>
+            <h2 className="text-xl font-display font-semibold">Journal Entries</h2>
             <Button onClick={handleCreateJournalFolder}>
               <Plus className="h-4 w-4 mr-2" />
               New Journal
@@ -134,12 +229,14 @@ const FoldersPage = () => {
             navigate={navigate}
             type="journal"
             emptyMessage="No journal folders yet. Create your first one to start recording your thoughts and experiences!"
+            onDelete={handleDeleteFolder}
+            onEdit={handleEditFolder}
           />
         </TabsContent>
 
         <TabsContent value="work" className="mt-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Work Notes</h2>
+            <h2 className="text-xl font-display font-semibold">Work Notes</h2>
             <Button onClick={handleCreateWorkFolder}>
               <Plus className="h-4 w-4 mr-2" />
               New Work Folder
@@ -152,13 +249,15 @@ const FoldersPage = () => {
             navigate={navigate}
             type="work"
             emptyMessage="No work folders yet. Create your first one to organize your professional notes!"
+            onDelete={handleDeleteFolder}
+            onEdit={handleEditFolder}
           />
         </TabsContent>
 
         <TabsContent value="other" className="mt-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Other Folders</h2>
-            <Button onClick={() => createFolder('New Folder', 'General purpose folder')}>
+            <h2 className="text-xl font-display font-semibold">Other Folders</h2>
+            <Button onClick={handleCreateGeneralFolder}>
               <Plus className="h-4 w-4 mr-2" />
               New Folder
             </Button>
@@ -170,9 +269,100 @@ const FoldersPage = () => {
             navigate={navigate}
             type="other"
             emptyMessage="No other folders yet. Create folders to organize any type of content!"
+            onDelete={handleDeleteFolder}
+            onEdit={handleEditFolder}
           />
         </TabsContent>
       </Tabs>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Folder</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{selectedFolder?.name}"? This action cannot be undone and will also delete all notes and quiz questions in this folder.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteFolder} disabled={isDeleting}>
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Folder Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Folder</DialogTitle>
+            <DialogDescription>
+              Update the folder name and description.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="folder-name" className="text-sm font-medium">
+                Folder Name
+              </label>
+              <Input
+                id="folder-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Enter folder name"
+                className="mt-1"
+                disabled={isEditing}
+              />
+            </div>
+            <div>
+              <label htmlFor="folder-description" className="text-sm font-medium">
+                Description
+              </label>
+              <Input
+                id="folder-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Enter folder description"
+                className="mt-1"
+                disabled={isEditing}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isEditing}>
+              Cancel
+            </Button>
+            <Button onClick={confirmEditFolder} disabled={!editName.trim() || isEditing}>
+              {isEditing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <CreateFolderModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreateFolder={handleCreateFolder}
+        type={createModalType}
+      />
     </div>
   );
 };
@@ -183,9 +373,19 @@ interface FolderGridProps {
   navigate: (path: string) => void;
   type: 'journal' | 'work' | 'other';
   emptyMessage: string;
+  onDelete: (folder: any) => void;
+  onEdit: (folder: any) => void;
 }
 
-const FolderGrid: React.FC<FolderGridProps> = ({ folders, getNotesCount, navigate, type, emptyMessage }) => {
+const FolderGrid: React.FC<FolderGridProps> = ({ 
+  folders, 
+  getNotesCount, 
+  navigate, 
+  type, 
+  emptyMessage,
+  onDelete,
+  onEdit
+}) => {
   const getIcon = () => {
     switch (type) {
       case 'journal': return <BookOpen className="h-6 w-6" />;
@@ -223,23 +423,53 @@ const FolderGrid: React.FC<FolderGridProps> = ({ folders, getNotesCount, navigat
       {folders.map((folder) => (
         <Card
           key={folder.id}
-          className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105"
-          onClick={() => navigate(`/folders/${folder.id}`)}
+          className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105 group"
         >
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
+              <div 
+                className="flex items-center gap-3 flex-1 cursor-pointer"
+                onClick={() => navigate(`/folders/${folder.id}`)}
+              >
                 {getIcon()}
-                <div>
-                  <CardTitle className="text-lg line-clamp-1">{folder.name}</CardTitle>
+                <div className="flex-1">
+                  <CardTitle className="text-lg font-display line-clamp-1">{folder.name}</CardTitle>
                   <Badge variant={getBadgeVariant()} className="mt-1">
                     {type}
                   </Badge>
                 </div>
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onEdit(folder)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => onDelete(folder)}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent 
+            className="pt-0 cursor-pointer"
+            onClick={() => navigate(`/folders/${folder.id}`)}
+          >
             {folder.description && (
               <p className="text-muted-foreground text-sm mb-3 line-clamp-2">
                 {folder.description}

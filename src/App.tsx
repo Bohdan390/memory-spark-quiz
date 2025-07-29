@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, HashRouter } from "react-router-dom";
 import ErrorBoundary from "@/components/ui/error-boundary";
 
 import { AppProvider, useApp } from "./context/AppContext";
@@ -11,6 +11,7 @@ import { ThemeProvider } from "./hooks/use-theme";
 import { logger } from './utils/logger';
 
 import MainLayout from "./components/layout/MainLayout";
+import { LoadingProgress } from "./components/ui/loading-progress";
 
 // Lazy load components for code splitting
 const Index = React.lazy(() => import("./pages/Index"));
@@ -48,29 +49,75 @@ function NavigationTracker() {
   return null;
 }
 
+// Component to prevent navigation until data is loaded
+const DataLoadingGuard = ({ children }: { children: React.ReactNode }) => {
+  const { isLoadingData, loadingProgress } = useApp();
+
+  // If data is still loading, show loading screen
+  if (isLoadingData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
+          <LoadingProgress 
+            progress={loadingProgress} 
+            message="Loading your notes, folders, and quiz data..."
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Only render children when data loading is complete
+  return <>{children}</>;
+};
+
 const AppRoutes = () => {
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      <Routes>
-        <Route path="/" element={<Navigate to="/folders" replace />} />
-        
-        <Route element={<MainLayout />}>
-          <Route path="/folders" element={<FoldersPage />} />
-          <Route path="/folders/:folderId" element={<FolderDetailPage />} />
-          <Route path="/folders/:folderId/notes/:noteId" element={<NoteDetailPage />} />
-          <Route path="/folders/:folderId/quiz" element={<QuizPage />} />
-          <Route path="/folders/:folderId/manage" element={<QuizManagementPage />} />
-          <Route path="/recent" element={<RecentPage />} />
-          <Route path="/quizzes" element={<QuizzesPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/debug/quiz" element={<QuizDebug />} />
-        </Route>
-        
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+    <DataLoadingGuard>
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/folders" replace />} />
+          
+          <Route element={<MainLayout />}>
+            <Route path="/folders" element={<FoldersPage />} />
+            <Route path="/folders/:folderId" element={<FolderDetailPage />} />
+            <Route path="/folders/:folderId/notes/:noteId" element={<NoteDetailPage />} />
+            <Route path="/folders/:folderId/quiz" element={<QuizPage />} />
+            <Route path="/folders/:folderId/manage" element={<QuizManagementPage />} />
+            <Route path="/recent" element={<RecentPage />} />
+            <Route path="/quizzes" element={<QuizzesPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/debug/quiz" element={<QuizDebug />} />
+          </Route>
+          
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </DataLoadingGuard>
   );
 }
+
+// Conditional Router Component
+const ConditionalRouter = ({ children }: { children: React.ReactNode }) => {
+  const isDevelopment = import.meta.env.MODE === "development";
+  
+  // Use a stable key to prevent router switching issues
+  const routerKey = isDevelopment ? "browser" : "hash";
+  
+  return (
+    <React.Fragment key={routerKey}>
+      {isDevelopment ? (
+        <BrowserRouter>
+          {children}
+        </BrowserRouter>
+      ) : (
+        <HashRouter>
+          {children}
+        </HashRouter>
+      )}
+    </React.Fragment>
+  );
+};
 
 const App = () => {
   React.useEffect(() => {
@@ -78,7 +125,8 @@ const App = () => {
       userAgent: navigator.userAgent,
       url: window.location.href,
       timestamp: new Date().toISOString(),
-      isElectron: typeof window !== 'undefined' && window.electronAPI ? true : false
+      isElectron: typeof window !== 'undefined' && window.electronAPI ? true : false,
+      mode: import.meta.env.MODE
     });
 
     // Log when app is about to close
@@ -101,10 +149,10 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
-              <BrowserRouter>
+              <ConditionalRouter>
                 <NavigationTracker />
                 <AppRoutes />
-              </BrowserRouter>
+              </ConditionalRouter>
             </TooltipProvider>
           </AppProvider>
         </ThemeProvider>

@@ -6,6 +6,7 @@ import { useApp } from '@/context/AppContext';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
+import { stripHtmlAndMarkdown } from '@/lib/utils';
 
 const RecentPage: React.FC = () => {
   const { folders } = useApp();
@@ -21,7 +22,7 @@ const RecentPage: React.FC = () => {
   
   return (
     <div>
-      <h1 className="text-3xl font-bold tracking-tight mb-8">Recent Notes</h1>
+      <h1 className="text-3xl font-display font-bold tracking-tight mb-8">Recent Notes</h1>
       
       {recentNotes.length === 0 ? (
         <div className="text-center py-10">
@@ -37,7 +38,7 @@ const RecentPage: React.FC = () => {
               <CardHeader className="p-4">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-lg font-medium line-clamp-1">{note.title}</h2>
+                    <h2 className="text-lg font-display font-medium line-clamp-1">{note.title}</h2>
                     <div className="flex items-center text-sm text-muted-foreground">
                       <Book className="h-3 w-3 mr-1" />
                       <span>{note.folderName}</span>
@@ -56,7 +57,7 @@ const RecentPage: React.FC = () => {
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <p className="text-sm text-muted-foreground line-clamp-2">
-                  {note.content}
+                  {stripHtmlAndMarkdown(note.content)}
                 </p>
               </CardContent>
             </Card>

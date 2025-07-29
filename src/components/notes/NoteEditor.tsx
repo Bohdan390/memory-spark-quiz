@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Note } from '@/types/models';
 import { 
-  SaveIcon, Bold, Italic, Underline, List, Heading1, Heading2, Heading3, 
+  SaveIcon, Bold, Italic, List, Heading1, Heading2, Heading3, 
   ListOrdered, Quote, Code, Undo, Redo, Link as LinkIcon, Highlighter, 
   ListTodo, Strikethrough 
 } from 'lucide-react';
@@ -21,11 +21,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import VoiceInput from './VoiceInput';
 
 interface NoteEditorProps {
   initialNote?: Note;
   folderId: string;
-  onSave: (title: string, content: string) => void;
+  onSave: (title: string, content: string) => Promise<void> | void;
   isNewNote: boolean;
   folderName: string;
 }
@@ -48,24 +49,23 @@ const ToolbarButton = ({
   <Tooltip>
     <TooltipTrigger asChild>
       <Button
-        type="button"
         variant="ghost"
         size="sm"
         onClick={onClick}
         disabled={disabled}
         className={cn(
           "h-8 w-8 p-0",
-          isActive && "bg-accent text-accent-foreground",
-          disabled && "opacity-50 cursor-not-allowed"
+          isActive && "bg-accent text-accent-foreground"
         )}
       >
         {icon}
-        <span className="sr-only">{label}</span>
       </Button>
     </TooltipTrigger>
     <TooltipContent>
-      <p>{label}</p>
-      {shortcut && <p className="text-xs text-muted-foreground">{shortcut}</p>}
+      <div className="flex flex-col items-center">
+        <span>{label}</span>
+        {shortcut && <span className="text-xs text-muted-foreground">{shortcut}</span>}
+      </div>
     </TooltipContent>
   </Tooltip>
 );
@@ -79,7 +79,39 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 }) => {
   const [title, setTitle] = useState(initialNote?.title || '');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+
+  // Handle voice input text
+  const handleVoiceText = (text: string) => {
+    if (editor) {
+      // Insert the transcribed text at the current cursor position
+      editor.chain().focus().insertContent(text + ' ').run();
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  // Prevent navigation while saving
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isSaving) {
+        e.preventDefault();
+        e.returnValue = 'Note is currently being saved. Please wait...';
+        return 'Note is currently being saved. Please wait...';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isSaving]);
+
+  // Text limits to prevent OpenAI rate limiting issues
+  const MAX_CHARACTERS = 8000; // Conservative limit for OpenAI API
+  const MAX_WORDS = 1500; // Conservative word limit
+  const MAX_TITLE_LENGTH = 200; // Title character limit
+  const WARNING_CHARACTERS = 6000; // Show warning at 75% of limit
+  const WARNING_WORDS = 1200; // Show warning at 80% of word limit
+  const WARNING_TITLE_LENGTH = 150; // Show warning at 75% of title limit
 
   const editor = useEditor({
     extensions: [
@@ -97,7 +129,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         },
       }),
       Placeholder.configure({
-        placeholder: 'Start writing your thoughts here... Use ## for headings, * for bold, - for lists...',
+        placeholder: `Start writing your thoughts here... Use ## for headings, * for bold, - for lists... (Limit: ${MAX_WORDS.toLocaleString()} words, ${MAX_CHARACTERS.toLocaleString()} characters)`,
       }),
       Typography,
       TaskList,
@@ -111,12 +143,14 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       Highlight.configure({
         multicolor: true,
       }),
-      CharacterCount,
+      CharacterCount.configure({
+        limit: MAX_CHARACTERS,
+      }),
     ],
     content: initialNote?.content || '',
-    onUpdate: ({ editor }) => {
+    onUpdate: () => {
       setHasUnsavedChanges(true);
-    },
+    },  
     editorProps: {
       attributes: {
         class: cn(
@@ -128,24 +162,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     },
   });
 
-  const handleAutoSave = useCallback(() => {
-    if (!editor) return;
-    
-    const content = editor.getHTML();
-    if (title.trim() && content.trim()) {
-      onSave(title, content);
-      setHasUnsavedChanges(false);
-      toast({ 
-        title: 'Auto-saved', 
-        description: 'Your changes have been automatically saved.', 
-        duration: 2000 
-      });
-    }
-  }, [editor, title, onSave, toast]);
-
-  const handleSubmit = useCallback((e?: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!editor) return;
+    if (!editor || isSaving) return;
 
     if (title.trim() === '') {
       toast({ 
@@ -156,42 +175,67 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
       return;
     }
 
+    if (title.length > MAX_TITLE_LENGTH) {
+      toast({ 
+        title: 'Title too long',
+        description: `Title exceeds ${MAX_TITLE_LENGTH} character limit. Please shorten your title.`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
     const content = editor.getHTML();
-    onSave(title, content);
-    setHasUnsavedChanges(false);
-    toast({ 
-      title: 'Note saved', 
-      description: `Note "${title}" has been saved successfully.`, 
-      duration: 3000 
-    });
+    const characterCount = editor.storage.characterCount.characters();
+    const wordCount = editor.storage.characterCount.words();
+
+    // Check character limit
+    if (characterCount > MAX_CHARACTERS) {
+      toast({ 
+        title: 'Note too long',
+        description: `Note exceeds ${MAX_CHARACTERS.toLocaleString()} character limit. Please shorten your note to avoid API rate limits.`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Check word limit
+    if (wordCount > MAX_WORDS) {
+      toast({ 
+        title: 'Note too long',
+        description: `Note exceeds ${MAX_WORDS.toLocaleString()} word limit. Please shorten your note to avoid API rate limits.`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onSave(title, content);
+      setHasUnsavedChanges(false);
+      // The toast message is already handled in the createNote/updateNote functions
+    } catch (error) {
+      console.error('Error saving note:', error);
+      // Don't reset hasUnsavedChanges on error so user can try again
+    } finally {
+      setIsSaving(false);
+    }
     
-  }, [editor, title, onSave, toast]);
-
-  // Auto-save functionality
-  useEffect(() => {
-    if (!hasUnsavedChanges || !editor) return;
-
-    const autoSaveTimer = setTimeout(() => {
-      if (title.trim() && editor.getText().trim()) {
-        handleAutoSave();
-      }
-    }, 3000); // Auto-save after 3 seconds of inactivity
-
-    return () => clearTimeout(autoSaveTimer);
-  }, [hasUnsavedChanges, title, editor, handleAutoSave]);
+  }, [editor, title, onSave, toast, isSaving]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
         event.preventDefault();
-        handleSubmit();
+        if (!isSaving) {
+          handleSubmit();
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleSubmit]);
+  }, [handleSubmit, isSaving]);
 
   const setLink = () => {
     if (!editor) return;
@@ -225,36 +269,47 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
           {isNewNote ? `New note in ${folderName}` : `Editing in ${folderName}`}
           {hasUnsavedChanges && <span className="ml-2 text-orange-500">• Unsaved changes</span>}
         </p>
-        <Input
-          placeholder="Untitled Note"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            setHasUnsavedChanges(true);
-          }}
-          className="text-3xl md:text-4xl font-bold h-auto p-0 border-none focus-visible:ring-0 shadow-none !bg-transparent tracking-tight"
-          autoFocus={isNewNote}
-          aria-label="Note title"
-          aria-required="true"
-        />
+        <div className="relative">
+          <Input
+            placeholder="Untitled Note"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setHasUnsavedChanges(true);
+            }}
+            className={cn(
+              "text-3xl md:text-4xl font-bold h-auto p-0 border-none focus-visible:ring-0 shadow-none !bg-transparent tracking-tight",
+              title.length > MAX_TITLE_LENGTH && "text-red-500",
+              title.length > WARNING_TITLE_LENGTH && title.length <= MAX_TITLE_LENGTH && "text-orange-500"
+            )}
+            autoFocus={isNewNote}
+            aria-label="Note title"
+            aria-required="true"
+          />
+          {title.length > WARNING_TITLE_LENGTH && (
+            <div className="absolute -bottom-6 right-0 text-xs text-muted-foreground">
+              {title.length}/{MAX_TITLE_LENGTH}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Toolbar */}
-      <div className="sticky top-[60px] z-10 bg-background/95 backdrop-blur-sm rounded-lg border p-3 mb-4 shadow-sm">
-        <div className="flex items-center space-x-1 flex-wrap gap-1">
+      <div className="bg-card border rounded-lg p-2">
+        <div className="flex items-center space-x-1">
           {/* Text Formatting */}
           <div className="flex items-center space-x-1">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleBold().run()} 
               icon={<Bold className="h-4 w-4" />} 
-              label="Bold" 
+              label="Bold"
               shortcut="Ctrl+B"
               isActive={editor.isActive('bold')}
             />
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleItalic().run()} 
               icon={<Italic className="h-4 w-4" />} 
-              label="Italic" 
+              label="Italic"
               shortcut="Ctrl+I"
               isActive={editor.isActive('italic')}
             />
@@ -309,7 +364,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleOrderedList().run()} 
               icon={<ListOrdered className="h-4 w-4" />} 
-              label="Numbered List"
+              label="Ordered List"
               isActive={editor.isActive('orderedList')}
             />
             <ToolbarButton 
@@ -346,6 +401,15 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
           <Separator orientation="vertical" className="h-6 mx-1" />
 
+          {/* Voice Input */}
+          <VoiceInput 
+            onTextChange={handleVoiceText}
+            disabled={!editor}
+            size="sm"
+          />
+
+          <Separator orientation="vertical" className="h-6 mx-1" />
+
           {/* Undo/Redo */}
           <div className="flex items-center space-x-1">
             <ToolbarButton 
@@ -370,11 +434,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
           <Button 
             onClick={handleSubmit} 
             size="sm" 
+            disabled={isSaving}
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
           >
-            <SaveIcon className="mr-2 h-4 w-4" /> 
-            Save Note
-            {hasUnsavedChanges && <span className="ml-1">*</span>}
+            <SaveIcon className={cn("mr-2 h-4 w-4", isSaving && "animate-spin")} /> 
+            {isSaving ? "Saving..." : "Save Note"}
+            {hasUnsavedChanges && !isSaving && <span className="ml-1">*</span>}
           </Button>
         </div>
 
@@ -385,8 +450,34 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
+      {/* Warning Messages */}
+      {(editor.storage.characterCount.characters() > WARNING_CHARACTERS || editor.storage.characterCount.words() > WARNING_WORDS) && (
+        <div className={cn(
+          "p-3 rounded-lg border text-sm font-medium",
+          editor.storage.characterCount.characters() > MAX_CHARACTERS || editor.storage.characterCount.words() > MAX_WORDS
+            ? "bg-red-50 border-red-200 text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200"
+            : "bg-orange-50 border-orange-200 text-orange-800 dark:bg-orange-950 dark:border-orange-800 dark:text-orange-200"
+        )}>
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>
+              {editor.storage.characterCount.characters() > MAX_CHARACTERS || editor.storage.characterCount.words() > MAX_WORDS
+                ? "Note exceeds limits and cannot be saved. Please shorten your content."
+                : "Approaching text limits. Consider shortening your note to avoid API rate limits when generating quizzes."
+              }
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Editor */}
-      <div className="bg-card border rounded-lg shadow-sm overflow-hidden">
+      <div className={cn(
+        "bg-card border rounded-lg shadow-sm overflow-hidden",
+        editor.storage.characterCount.characters() > MAX_CHARACTERS && "border-red-500 border-2",
+        editor.storage.characterCount.characters() > WARNING_CHARACTERS && editor.storage.characterCount.characters() <= MAX_CHARACTERS && "border-orange-500 border-2",
+        editor.storage.characterCount.words() > MAX_WORDS && "border-red-500 border-2",
+        editor.storage.characterCount.words() > WARNING_WORDS && editor.storage.characterCount.words() <= MAX_WORDS && "border-orange-500 border-2"
+      )}>
         <EditorContent 
           editor={editor} 
           className="min-h-[calc(100vh-350px)]"
@@ -395,12 +486,35 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* Status Bar */}
       <div className="flex justify-between items-center text-xs text-muted-foreground">
-        <div>
-          {editor.storage.characterCount.characters()} characters, {' '}
-          {editor.storage.characterCount.words()} words
+        <div className="flex items-center gap-4">
+          <div className={cn(
+            "flex items-center gap-1",
+            editor.storage.characterCount.characters() > MAX_CHARACTERS && "text-red-500 font-medium",
+            editor.storage.characterCount.characters() > WARNING_CHARACTERS && editor.storage.characterCount.characters() <= MAX_CHARACTERS && "text-orange-500"
+          )}>
+            <span>{editor.storage.characterCount.characters().toLocaleString()}</span>
+            <span>/</span>
+            <span>{MAX_CHARACTERS.toLocaleString()}</span>
+            <span>characters</span>
+          </div>
+          <div className={cn(
+            "flex items-center gap-1",
+            editor.storage.characterCount.words() > MAX_WORDS && "text-red-500 font-medium",
+            editor.storage.characterCount.words() > WARNING_WORDS && editor.storage.characterCount.words() <= MAX_WORDS && "text-orange-500"
+          )}>
+            <span>{editor.storage.characterCount.words().toLocaleString()}</span>
+            <span>/</span>
+            <span>{MAX_WORDS.toLocaleString()}</span>
+            <span>words</span>
+          </div>
+          {(editor.storage.characterCount.characters() > WARNING_CHARACTERS || editor.storage.characterCount.words() > WARNING_WORDS) && (
+            <div className="text-orange-500 font-medium">
+              ⚠️ Approaching limit
+            </div>
+          )}
         </div>
         <div>
-          Auto-save: {hasUnsavedChanges ? 'Pending...' : 'Up to date'}
+          {isSaving ? 'Saving...' : hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved'}
         </div>
       </div>
     </div>

@@ -14,7 +14,7 @@ const Navbar: React.FC = () => {
         <div className="flex items-center gap-2">
           <Link to="/folders" className="flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-memoquiz-purple" />
-            <span className="text-lg font-bold">MemoQuiz</span>
+            <span className="text-lg font-display font-bold">MemoQuiz</span>
           </Link>
         </div>
         

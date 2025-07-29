@@ -1,175 +1,149 @@
-import { Category, Entry, QuizQuestion, QuizResult } from '../types/models';
-import { supabase } from '@/lib/supabaseClient';
+import { Folder, Note, QuizQuestion, QuizResult } from '@/types/models';
+
+// Type definitions for Electron API
+declare global {
+  interface Window {
+    electronAPI?: {
+      getFolders: () => Promise<Folder[]>;
+      saveFolders: (folders: Folder[]) => Promise<boolean>;
+      getNotes: () => Promise<Note[]>;
+      saveNotes: (notes: Note[]) => Promise<boolean>;
+      getQuizQuestions: (folderId: string) => Promise<QuizQuestion[]>;
+      saveQuizQuestions: (folderId: string, questions: QuizQuestion[]) => Promise<boolean>;
+      getQuizResults: (folderId: string) => Promise<QuizResult[]>;
+      saveQuizResults: (folderId: string, results: QuizResult[]) => Promise<boolean>;
+      getSettings: () => Promise<any>;
+      saveSettings: (settings: any) => Promise<boolean>;
+      getStoragePath: () => Promise<string>;
+      onMenuNewFolder: (callback: () => void) => void;
+      onMenuNewNote: (callback: () => void) => void;
+      onMenuAbout: (callback: () => void) => void;
+      removeAllListeners: (channel: string) => void;
+    };
+  }
+}
 
 class ElectronDataService {
   private isElectron = typeof window !== 'undefined' && window.electronAPI;
 
-  // --- Supabase Methods ---
-  // Categories
-  async saveCategoriesToSupabase(categories: Category[]): Promise<void> {
-    await supabase.from('categories').upsert(categories);
-  }
-  async loadCategoriesFromSupabase(): Promise<Category[]> {
-    const { data, error } = await supabase.from('categories').select('*');
-    if (error) throw error;
-    return data || [];
-  }
-
-  // Entries
-  async saveEntriesToSupabase(entries: Entry[]): Promise<void> {
-    await supabase.from('entries').upsert(entries);
-  }
-  async loadEntriesFromSupabase(): Promise<Entry[]> {
-    const { data, error } = await supabase.from('entries').select('*');
-    if (error) throw error;
-    return data || [];
-  }
-
-  // Quiz Questions
-  async saveQuizQuestionsToSupabase(questions: QuizQuestion[]): Promise<void> {
-    await supabase.from('quiz_questions').upsert(questions);
-  }
-  async loadQuizQuestionsFromSupabase(): Promise<QuizQuestion[]> {
-    const { data, error } = await supabase.from('quiz_questions').select('*');
-    if (error) throw error;
-    return data || [];
-  }
-
-  // Quiz Results
-  async saveQuizResultsToSupabase(results: QuizResult[]): Promise<void> {
-    await supabase.from('quiz_results').upsert(results);
-  }
-  async loadQuizResultsFromSupabase(): Promise<QuizResult[]> {
-    const { data, error } = await supabase.from('quiz_results').select('*');
-    if (error) throw error;
-    return data || [];
-  }
-
-  // --- Existing Electron/LocalStorage Methods ---
-  // Categories (replacing folders)
-  async saveCategories(categories: Category[]): Promise<void> {
-    if (this.isElectron) {
-      await window.electronAPI.saveData('categories.json', categories);
-    } else {
-      localStorage.setItem('categories', JSON.stringify(categories));
+  // Folder operations
+  async getFolders(): Promise<Folder[]> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.getFolders();
   }
 
-  async loadCategories(): Promise<Category[]> {
-    if (this.isElectron) {
-      const result = await window.electronAPI.loadData('categories.json');
-      return result.data || [];
-    } else {
-      const data = localStorage.getItem('categories');
-      return data ? JSON.parse(data) : [];
+  async saveFolders(folders: Folder[]): Promise<boolean> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.saveFolders(folders);
   }
 
-  // Entries (replacing notes)
-  async saveEntries(entries: Entry[]): Promise<void> {
-    if (this.isElectron) {
-      await window.electronAPI.saveData('entries.json', entries);
-    } else {
-      localStorage.setItem('entries', JSON.stringify(entries));
+  // Note operations
+  async getNotes(): Promise<Note[]> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.getNotes();
   }
 
-  async loadEntries(): Promise<Entry[]> {
-    if (this.isElectron) {
-      const result = await window.electronAPI.loadData('entries.json');
-      return result.data || [];
-    } else {
-      const data = localStorage.getItem('entries');
-      return data ? JSON.parse(data) : [];
+  async saveNotes(notes: Note[]): Promise<boolean> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.saveNotes(notes);
   }
 
-  // Quiz Questions
-  async saveQuizQuestions(questions: QuizQuestion[]): Promise<void> {
-    if (this.isElectron) {
-      await window.electronAPI.saveData('quiz_questions.json', questions);
-    } else {
-      localStorage.setItem('quiz_questions', JSON.stringify(questions));
+  // Quiz question operations
+  async getQuizQuestions(folderId: string): Promise<QuizQuestion[]> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.getQuizQuestions(folderId);
   }
 
-  async loadQuizQuestions(): Promise<QuizQuestion[]> {
-    if (this.isElectron) {
-      const result = await window.electronAPI.loadData('quiz_questions.json');
-      return result.data || [];
-    } else {
-      const data = localStorage.getItem('quiz_questions');
-      return data ? JSON.parse(data) : [];
+  async saveQuizQuestions(folderId: string, questions: QuizQuestion[]): Promise<boolean> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.saveQuizQuestions(folderId, questions);
   }
 
-  // Quiz Results
-  async saveQuizResults(results: QuizResult[]): Promise<void> {
-    if (this.isElectron) {
-      await window.electronAPI.saveData('quiz_results.json', results);
-    } else {
-      localStorage.setItem('quiz_results', JSON.stringify(results));
+  // Quiz result operations
+  async getQuizResults(folderId: string): Promise<QuizResult[]> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.getQuizResults(folderId);
   }
 
-  async loadQuizResults(): Promise<QuizResult[]> {
-    if (this.isElectron) {
-      const result = await window.electronAPI.loadData('quiz_results.json');
-      return result.data || [];
-    } else {
-      const data = localStorage.getItem('quiz_results');
-      return data ? JSON.parse(data) : [];
+  async saveQuizResults(folderId: string, results: QuizResult[]): Promise<boolean> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.saveQuizResults(folderId, results);
   }
 
-  // Export functionality
-  async exportData(): Promise<void> {
-    if (this.isElectron) {
-      const categories = await this.loadCategories();
-      const entries = await this.loadEntries();
-      const questions = await this.loadQuizQuestions();
-      const results = await this.loadQuizResults();
-      
-      const exportData = {
-        categories,
-        entries,
-        questions,
-        results,
-        exportDate: new Date().toISOString()
-      };
-
-      const result = await window.electronAPI.showSaveDialog();
-      if (!result.canceled && result.filePath) {
-        await window.electronAPI.saveData(result.filePath, exportData);
-      }
+  // Settings operations
+  async getSettings(): Promise<any> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
+    return await window.electronAPI!.getSettings();
   }
 
-  // Import functionality
-  async importData(): Promise<boolean> {
-    if (this.isElectron) {
-      const result = await window.electronAPI.showOpenDialog();
-      if (!result.canceled && result.filePaths.length > 0) {
-        const importedData = await window.electronAPI.loadData(result.filePaths[0]);
-        if (importedData.success && importedData.data) {
-          const data = importedData.data;
-          if (data.categories) await this.saveCategories(data.categories);
-          if (data.entries) await this.saveEntries(data.entries);
-          if (data.questions) await this.saveQuizQuestions(data.questions);
-          if (data.results) await this.saveQuizResults(data.results);
-          return true;
-        }
-      }
+  async saveSettings(settings: any): Promise<boolean> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
-    return false;
+    return await window.electronAPI!.saveSettings(settings);
   }
 
-  async getDataPath(): Promise<string> {
-    if (this.isElectron) {
-      return await window.electronAPI.getDataPath();
+  // Storage path
+  async getStoragePath(): Promise<string> {
+    if (!this.isElectron) {
+      throw new Error('Electron API not available');
     }
-    return 'Browser localStorage';
+    return await window.electronAPI!.getStoragePath();
+  }
+
+  // Menu event listeners
+  onMenuNewFolder(callback: () => void): void {
+    if (!this.isElectron) {
+      return;
+    }
+    window.electronAPI!.onMenuNewFolder(callback);
+  }
+
+  onMenuNewNote(callback: () => void): void {
+    if (!this.isElectron) {
+      return;
+    }
+    window.electronAPI!.onMenuNewNote(callback);
+  }
+
+  onMenuAbout(callback: () => void): void {
+    if (!this.isElectron) {
+      return;
+    }
+    window.electronAPI!.onMenuAbout(callback);
+  }
+
+  // Cleanup listeners
+  removeAllListeners(channel: string): void {
+    if (!this.isElectron) {
+      return;
+    }
+    window.electronAPI!.removeAllListeners(channel);
+  }
+
+  // Check if running in Electron
+  isElectronApp(): boolean {
+    return this.isElectron;
   }
 }
 
-export const electronDataService = new ElectronDataService(); 
+export const electronDataService = new ElectronDataService();
+export default electronDataService; 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -9,10 +9,19 @@ const isDev = process.env.NODE_ENV === 'development';
 const DOCUMENTS_PATH = path.join(os.homedir(), 'Documents', 'MemoQuiz');
 const FOLDERS_FILE = path.join(DOCUMENTS_PATH, 'folders.json');
 const NOTES_FILE = path.join(DOCUMENTS_PATH, 'notes.json');
-// Ensure storage directory exists
-if (!fs.existsSync(DOCUMENTS_PATH)) {
-    fs.mkdirSync(DOCUMENTS_PATH, { recursive: true });
-}
+const QUIZ_QUESTIONS_DIR = path.join(DOCUMENTS_PATH, 'quiz-questions');
+const QUIZ_RESULTS_DIR = path.join(DOCUMENTS_PATH, 'quiz-results');
+const SETTINGS_FILE = path.join(DOCUMENTS_PATH, 'settings.json');
+// Ensure storage directories exist
+const ensureDirectories = () => {
+    const dirs = [DOCUMENTS_PATH, QUIZ_QUESTIONS_DIR, QUIZ_RESULTS_DIR];
+    dirs.forEach(dir => {
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+    });
+};
+ensureDirectories();
 // Check if port is available
 const checkPort = (port) => {
     return new Promise((resolve) => {
@@ -53,15 +62,19 @@ const createWindow = async () => {
     try {
         // Create the browser window
         mainWindow = new BrowserWindow({
-            width: 1200,
-            height: 800,
+            width: 1400,
+            height: 900,
+            minWidth: 800,
+            minHeight: 600,
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
                 preload: path.join(__dirname, 'preload.js'),
+                webSecurity: !isDev, // Allow local resources in dev
             },
             titleBarStyle: 'default',
             show: false, // Don't show until ready
+            icon: path.join(__dirname, '../assets/icons/icon.png'), // App icon
         });
         // Load the app
         let loadUrl;
@@ -82,8 +95,10 @@ const createWindow = async () => {
             }
         }
         else {
-            loadUrl = `file://${path.join(__dirname, '../dist/index.html')}`;
-            await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+            // In production, the dist folder is packaged with the app
+            const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+            console.log(`Loading production app from: ${indexPath}`);
+            await mainWindow.loadFile(indexPath);
         }
         // Show window when ready
         mainWindow.once('ready-to-show', () => {
@@ -119,7 +134,7 @@ const createWindow = async () => {
     }
 };
 // File operation helpers
-const readJsonFile = (filePath, defaultValue = []) => {
+const readJsonFile = (filePath, defaultValue) => {
     try {
         if (fs.existsSync(filePath)) {
             const data = fs.readFileSync(filePath, 'utf8');
@@ -134,6 +149,11 @@ const readJsonFile = (filePath, defaultValue = []) => {
 };
 const writeJsonFile = (filePath, data) => {
     try {
+        // Ensure directory exists
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
         return true;
     }
@@ -142,21 +162,155 @@ const writeJsonFile = (filePath, data) => {
         return false;
     }
 };
-// IPC handlers
+// IPC handlers for folders
 ipcMain.handle('get-folders', () => {
     return readJsonFile(FOLDERS_FILE, []);
 });
 ipcMain.handle('save-folders', (_, folders) => {
     return writeJsonFile(FOLDERS_FILE, folders);
 });
+// IPC handlers for notes
 ipcMain.handle('get-notes', () => {
     return readJsonFile(NOTES_FILE, []);
 });
 ipcMain.handle('save-notes', (_, notes) => {
     return writeJsonFile(NOTES_FILE, notes);
 });
+// Generic data save handler
+ipcMain.handle('save-data', (_, data) => {
+    // This is a generic handler for saving any data
+    // You can implement specific logic here if needed
+    return true;
+});
+// IPC handlers for quiz questions (per folder)
+ipcMain.handle('get-quiz-questions', (_, folderId) => {
+    const filePath = path.join(QUIZ_QUESTIONS_DIR, `${folderId}.json`);
+    return readJsonFile(filePath, []);
+});
+ipcMain.handle('save-quiz-questions', (_, folderId, questions) => {
+    const filePath = path.join(QUIZ_QUESTIONS_DIR, `${folderId}.json`);
+    return writeJsonFile(filePath, questions);
+});
+// IPC handlers for quiz results (per folder)
+ipcMain.handle('get-quiz-results', (_, folderId) => {
+    const filePath = path.join(QUIZ_RESULTS_DIR, `${folderId}.json`);
+    return readJsonFile(filePath, []);
+});
+ipcMain.handle('save-quiz-results', (_, folderId, results) => {
+    const filePath = path.join(QUIZ_RESULTS_DIR, `${folderId}.json`);
+    return writeJsonFile(filePath, results);
+});
+// IPC handlers for settings
+ipcMain.handle('get-settings', () => {
+    return readJsonFile(SETTINGS_FILE, {
+        theme: 'system',
+        autoSave: true,
+        notifications: true,
+        studyReminders: true,
+        defaultQuizLength: 10,
+        spacedRepetition: true
+    });
+});
+ipcMain.handle('save-settings', (_, settings) => {
+    return writeJsonFile(SETTINGS_FILE, settings);
+});
+// IPC handler for storage path
 ipcMain.handle('get-storage-path', () => {
     return DOCUMENTS_PATH;
+});
+// IPC handler for export data
+ipcMain.handle('export-data', async () => {
+    try {
+        const result = await dialog.showSaveDialog(mainWindow, {
+            title: 'Export MemoQuiz Data',
+            defaultPath: path.join(DOCUMENTS_PATH, `memoquiz-export-${new Date().toISOString().split('T')[0]}.json`),
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+        if (!result.canceled && result.filePath) {
+            const folders = readJsonFile(FOLDERS_FILE, []);
+            const notes = readJsonFile(NOTES_FILE, []);
+            // Collect all quiz questions and results
+            const allQuizQuestions = {};
+            const allQuizResults = {};
+            if (fs.existsSync(QUIZ_QUESTIONS_DIR)) {
+                const questionFiles = fs.readdirSync(QUIZ_QUESTIONS_DIR);
+                for (const file of questionFiles) {
+                    if (file.endsWith('.json')) {
+                        const folderId = file.replace('.json', '');
+                        allQuizQuestions[folderId] = readJsonFile(path.join(QUIZ_QUESTIONS_DIR, file), []);
+                    }
+                }
+            }
+            if (fs.existsSync(QUIZ_RESULTS_DIR)) {
+                const resultFiles = fs.readdirSync(QUIZ_RESULTS_DIR);
+                for (const file of resultFiles) {
+                    if (file.endsWith('.json')) {
+                        const folderId = file.replace('.json', '');
+                        allQuizResults[folderId] = readJsonFile(path.join(QUIZ_RESULTS_DIR, file), []);
+                    }
+                }
+            }
+            const exportData = {
+                folders,
+                notes,
+                quizQuestions: allQuizQuestions,
+                quizResults: allQuizResults,
+                settings: readJsonFile(SETTINGS_FILE, {}),
+                exportDate: new Date().toISOString(),
+                version: app.getVersion()
+            };
+            return writeJsonFile(result.filePath, exportData);
+        }
+        return false;
+    }
+    catch (error) {
+        console.error('Export error:', error);
+        return false;
+    }
+});
+// IPC handler for import data
+ipcMain.handle('import-data', async () => {
+    try {
+        const result = await dialog.showOpenDialog(mainWindow, {
+            title: 'Import MemoQuiz Data',
+            properties: ['openFile'],
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+        if (!result.canceled && result.filePaths.length > 0) {
+            const importData = readJsonFile(result.filePaths[0], {});
+            if (importData.folders) {
+                writeJsonFile(FOLDERS_FILE, importData.folders);
+            }
+            if (importData.notes) {
+                writeJsonFile(NOTES_FILE, importData.notes);
+            }
+            if (importData.quizQuestions) {
+                for (const [folderId, questions] of Object.entries(importData.quizQuestions)) {
+                    writeJsonFile(path.join(QUIZ_QUESTIONS_DIR, `${folderId}.json`), questions);
+                }
+            }
+            if (importData.quizResults) {
+                for (const [folderId, results] of Object.entries(importData.quizResults)) {
+                    writeJsonFile(path.join(QUIZ_RESULTS_DIR, `${folderId}.json`), results);
+                }
+            }
+            if (importData.settings) {
+                writeJsonFile(SETTINGS_FILE, importData.settings);
+            }
+            return true;
+        }
+        return false;
+    }
+    catch (error) {
+        console.error('Import error:', error);
+        return false;
+    }
 });
 // Create application menu
 const createMenu = () => {
@@ -197,6 +351,37 @@ const createMenu = () => {
                     }
                 },
                 { type: 'separator' },
+                {
+                    label: 'Export Data',
+                    accelerator: 'CmdOrCtrl+E',
+                    click: async () => {
+                        if (mainWindow) {
+                            const success = await ipcMain.handle('export-data', []);
+                            if (success) {
+                                mainWindow.webContents.send('menu-export-success');
+                            }
+                            else {
+                                mainWindow.webContents.send('menu-export-error');
+                            }
+                        }
+                    }
+                },
+                {
+                    label: 'Import Data',
+                    accelerator: 'CmdOrCtrl+I',
+                    click: async () => {
+                        if (mainWindow) {
+                            const success = await ipcMain.handle('import-data', []);
+                            if (success) {
+                                mainWindow.webContents.send('menu-import-success');
+                            }
+                            else {
+                                mainWindow.webContents.send('menu-import-error');
+                            }
+                        }
+                    }
+                },
+                { type: 'separator' },
                 { role: 'close' }
             ]
         },
@@ -227,6 +412,29 @@ const createMenu = () => {
             ]
         },
         {
+            label: 'Study',
+            submenu: [
+                {
+                    label: 'Start Quiz',
+                    accelerator: 'CmdOrCtrl+Shift+Q',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('menu-start-quiz');
+                        }
+                    }
+                },
+                {
+                    label: 'Generate Quiz',
+                    accelerator: 'CmdOrCtrl+G',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('menu-generate-quiz');
+                        }
+                    }
+                }
+            ]
+        },
+        {
             label: 'Window',
             submenu: [
                 { role: 'minimize' },
@@ -244,6 +452,13 @@ const createMenu = () => {
                         if (mainWindow) {
                             mainWindow.webContents.send('menu-about');
                         }
+                    }
+                },
+                {
+                    label: 'Open Data Folder',
+                    click: async () => {
+                        const { shell } = require('electron');
+                        await shell.openPath(DOCUMENTS_PATH);
                     }
                 }
             ]

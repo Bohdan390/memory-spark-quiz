@@ -8,24 +8,35 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApp } from '@/context/AppContext';
 import NoteSelectionModal from '@/components/quiz/NoteSelectionModal';
-import { ArrowLeft, Edit2, Save, X, Trash2, Plus, Brain, History, Target, Calendar, Clock } from 'lucide-react';
+import { ArrowLeft, Edit2, Save, X, Trash2, Brain, History, Target, Calendar, Clock, TrendingUp, CheckSquare } from 'lucide-react';
 import { QuizQuestion, QuizResult } from '@/types/models';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDistanceToNow, format } from 'date-fns';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer
+} from 'recharts';
 
 const QuizManagementPage: React.FC = () => {
   const { folderId } = useParams<{ folderId: string }>();
   const navigate = useNavigate();
   const { 
     getFolder, 
-    generateQuiz, 
+    generateQuiz,
+    generateMultipleChoiceQuiz,
     isGeneratingQuiz, 
-    quizResults, 
+    getQuizResults,
     getFolderQuestions, 
     updateQuestion, 
     createQuestion,
-    deleteQuestion, 
-    addQuestion 
+    deleteQuestion,
+    quizQuestions,
+    cleanupOrphanedQuizResults
   } = useApp();
   const { toast } = useToast();
   
@@ -33,16 +44,48 @@ const QuizManagementPage: React.FC = () => {
   const [editingQuestion, setEditingQuestion] = useState<string | null>(null);
   const [editedQuestion, setEditedQuestion] = useState<Partial<QuizQuestion>>({});
   const [isNoteSelectionModalOpen, setIsNoteSelectionModalOpen] = useState(false);
+  const [folderQuizResults, setFolderQuizResults] = useState<QuizResult[]>([]);
+  const [isLoadingResults, setIsLoadingResults] = useState(false);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
   
   const folder = getFolder(folderId || '');
   
   useEffect(() => {
-    // Load existing quiz questions for this folder
-    if (folderId) {
-      const folderQuestions = getFolderQuestions(folderId);
-      setQuestions(folderQuestions);
-    }
-  }, [folderId, getFolderQuestions]);
+    // Load only quiz questions for the current folder
+    const folderQuestions = quizQuestions
+      .filter((q: any) => q.folder_id === folderId)
+      .map((q: any) => ({
+        ...q,
+        nextReviewDate: new Date(q.nextReviewDate),
+        lastReviewed: q.lastReviewed ? new Date(q.lastReviewed) : null,
+      }));
+    setQuestions(folderQuestions);
+  }, [quizQuestions, folderId]);
+
+  useEffect(() => {
+    // Load quiz results for this folder
+    const loadQuizResults = async () => {
+      if (!folderId) return;
+      
+      setIsLoadingResults(true);
+      try {
+        const results = await getQuizResults(folderId);
+        console.log('Loading quiz results for folder:', results);
+        setFolderQuizResults(results);
+      } catch (error) {
+        console.error('Error loading quiz results:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load quiz results.',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoadingResults(false);
+      }
+    };
+
+    loadQuizResults();
+  }, [folderId, getQuizResults, toast]);
   
   if (!folder) {
     return (
@@ -55,7 +98,9 @@ const QuizManagementPage: React.FC = () => {
     );
   }
   
-  const folderQuizResults = quizResults.filter(result => result.folder_id === folder.id);
+
+  const [quizType, setQuizType] = useState<'mixed' | 'multipleChoice'>('mixed');
+
   const handleGenerateQuestions = () => {
     if (!folderId || !folder || folder.notes.length === 0) return;
     
@@ -66,12 +111,21 @@ const QuizManagementPage: React.FC = () => {
     if (!folderId) return;
     
     try {
-      const newQuestions = await generateQuiz(folderId, selectedNoteIds);
-      setQuestions(newQuestions);
-      toast({
-        title: 'Questions Generated!',
-        description: `Generated ${newQuestions.length} new quiz questions from ${selectedNoteIds.length} selected notes.`
-      });
+      let newQuestions;
+      if (quizType === 'multipleChoice') {
+        newQuestions = await generateMultipleChoiceQuiz(folderId, selectedNoteIds);
+        toast({
+          title: 'Multiple Choice Questions Generated!',
+          description: `Generated ${newQuestions.length} multiple choice questions from ${selectedNoteIds.length} selected notes.`
+        });
+      } else {
+        newQuestions = await generateQuiz(folderId, selectedNoteIds);
+        toast({
+          title: 'Questions Generated!',
+          description: `Generated ${newQuestions.length} new quiz questions from ${selectedNoteIds.length} selected notes.`
+        });
+      }
+      // The questions will be automatically updated by the useEffect that filters by folderId
       setIsNoteSelectionModalOpen(false);
     } catch (error) {
       toast({
@@ -134,28 +188,27 @@ const QuizManagementPage: React.FC = () => {
     });
   };
   
-  const handleAddNewQuestion = () => {
-    if (!folderId) return;
-    
-    const questionData = {
-      folder_id: folderId,
-      note_id: folder?.notes[0]?.id || '',
-      question: 'New question',
-      answer: 'Answer',
-      type: 'fillInBlank' as const,
-      easeFactor: 2.5,
-      interval: 1,
-      lastReviewed: null,
-      nextReviewDate: new Date(),
-    };
-    
-    const newQuestion = addQuestion(folderId, questionData as QuizQuestion);
-    
-    // Update local state
-    setQuestions(prev => [...prev, newQuestion]);
-    setEditingQuestion(newQuestion.id);
-    setEditedQuestion(newQuestion);
+  const handleCleanupOrphanedData = async () => {
+    setIsCleaningUp(true);
+    try {
+      await cleanupOrphanedQuizResults();
+      toast({
+        title: 'Cleanup completed',
+        description: 'Orphaned quiz results have been cleaned up successfully.'
+      });
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+      toast({
+        title: 'Cleanup failed',
+        description: 'Failed to clean up orphaned data. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsCleaningUp(false);
+    }
   };
+
+
   
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -176,6 +229,19 @@ const QuizManagementPage: React.FC = () => {
   };
   
   const stats = getTotalStats();
+  
+  // Chart data for accuracy over time
+  const chartData = React.useMemo(() => {
+    return folderQuizResults
+      .map(result => ({
+        date: new Date(result.date).toLocaleDateString(),
+        accuracy: Math.round((result.correctAnswers / result.totalQuestions) * 100),
+        questionsAnswered: result.totalQuestions,
+        correctAnswers: result.correctAnswers,
+        timestamp: new Date(result.date).getTime()
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [folderQuizResults]);
   
   // Helper function to format dates beautifully
   const formatQuizDate = (date: Date) => {
@@ -210,6 +276,7 @@ const QuizManagementPage: React.FC = () => {
     };
   };
   
+  console.log(folderQuizResults)
   return (
     <div>
       <div className="flex items-center mb-8">
@@ -252,17 +319,45 @@ const QuizManagementPage: React.FC = () => {
               </p>
             </div>
             <div className="flex gap-2">
-              {/* <Button onClick={handleAddNewQuestion} variant="outline">
-                <Plus className="mr-2 h-4 w-4" /> Add Question
-              </Button> */}
-              {/* <Button 
-                onClick={handleGenerateQuestions}
+              <Button 
+                onClick={handleCleanupOrphanedData}
+                variant="outline"
+                disabled={isCleaningUp}
+              >
+                {isCleaningUp ? (
+                  <>
+                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Cleaning...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Cleanup Orphaned Data
+                  </>
+                )}
+              </Button>
+              <Button 
+                onClick={() => {
+                  setQuizType('mixed');
+                  handleGenerateQuestions();
+                }}
                 disabled={isGeneratingQuiz || folder.notes.length === 0}
                 className="bg-memoquiz-purple hover:bg-memoquiz-purple/90"
               >
                 <Brain className="mr-2 h-4 w-4" />
-                {isGeneratingQuiz ? 'Generating...' : 'Generate Questions'}
-              </Button> */}
+                {isGeneratingQuiz ? 'Generating...' : 'Mixed Questions'}
+              </Button>
+              <Button 
+                onClick={() => {
+                  setQuizType('multipleChoice');
+                  handleGenerateQuestions();
+                }}
+                disabled={isGeneratingQuiz || folder.notes.length === 0}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <CheckSquare className="mr-2 h-4 w-4" />
+                {isGeneratingQuiz ? 'Generating...' : 'Multiple Choice'}
+              </Button>
             </div>
           </div>
           
@@ -272,19 +367,37 @@ const QuizManagementPage: React.FC = () => {
                 <Brain className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No Questions Yet</h3>
                 <p className="text-muted-foreground mb-4">
-                  Generate questions from your notes or add them manually.
+                  Generate questions from your notes to get started.
                 </p>
-                <div className="flex gap-2 justify-center">
-                  <Button onClick={handleAddNewQuestion} variant="outline">
-                    <Plus className="mr-2 h-4 w-4" /> Add Manually
-                  </Button>
-                  <Button 
-                    onClick={handleGenerateQuestions}
-                    disabled={folder.notes.length === 0}
-                    className="bg-memoquiz-purple hover:bg-memoquiz-purple/90"
-                  >
-                    <Brain className="mr-2 h-4 w-4" /> Generate from Notes
-                  </Button>
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-3">Generate questions from your notes:</p>
+                    <div className="flex gap-2 justify-center">
+                      <Button 
+                        onClick={() => {
+                          setQuizType('mixed');
+                          handleGenerateQuestions();
+                        }}
+                        disabled={folder.notes.length === 0}
+                        variant={quizType === 'mixed' ? 'default' : 'outline'}
+                        className="bg-memoquiz-purple hover:bg-memoquiz-purple/90"
+                      >
+                        <Brain className="mr-2 h-4 w-4" /> Mixed Questions
+                      </Button>
+                      <Button 
+                        onClick={() => {
+                          setQuizType('multipleChoice');
+                          handleGenerateQuestions();
+                        }}
+                        disabled={folder.notes.length === 0}
+                        variant={quizType === 'multipleChoice' ? 'default' : 'outline'}
+                        className="bg-blue-600 hover:bg-blue-700"
+                        style={{color: 'white'}}
+                      >
+                        <CheckSquare className="mr-2 h-4 w-4" /> Multiple Choice Only
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -379,9 +492,41 @@ const QuizManagementPage: React.FC = () => {
         </TabsContent>
         
         <TabsContent value="history" className="space-y-6">
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Quiz History</h2>
-            {folderQuizResults.length === 0 ? (
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Quiz History</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (folderId) {
+                  setIsLoadingResults(true);
+                  getQuizResults(folderId).then(results => {
+                    setFolderQuizResults(results);
+                    setIsLoadingResults(false);
+                  }).catch(error => {
+                    console.error('Error refreshing quiz results:', error);
+                    setIsLoadingResults(false);
+                  });
+                }
+              }}
+              disabled={isLoadingResults}
+              className="flex items-center gap-2"
+            >
+              <History className="w-4 h-4" />
+              {isLoadingResults ? 'Refreshing...' : 'Refresh'}
+            </Button>
+          </div>
+            {isLoadingResults ? (
+              <Card className="text-center py-10">
+                <CardContent>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <h3 className="text-lg font-semibold mb-2">Loading Quiz History</h3>
+                  <p className="text-muted-foreground">
+                    Fetching your quiz results...
+                  </p>
+                </CardContent>
+              </Card>
+            ) : folderQuizResults.length === 0 ? (
               <Card className="text-center py-10">
                 <CardContent>
                   <History className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -481,7 +626,6 @@ const QuizManagementPage: React.FC = () => {
                 })}
               </div>
             )}
-          </div>
         </TabsContent>
         
         <TabsContent value="stats" className="space-y-6">
@@ -524,62 +668,97 @@ const QuizManagementPage: React.FC = () => {
           </div>
           
           {folderQuizResults.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="h-5 w-5" />
-                  Performance Over Time
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {folderQuizResults.map((result, index) => {
-                    const dateInfo = formatQuizDate(result.date);
-                    const score = Math.round((result.correctAnswers / result.totalQuestions) * 100);
-                    return (
-                      <div key={`${result.date.getTime()}-${index}`} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-                        <div className="flex items-center gap-3">
-                          <div className="text-sm font-medium">Quiz #{folderQuizResults.length - index}</div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Calendar className="w-3 h-3" />
-                            <span>{dateInfo.formattedDate}</span>
-                            <span>•</span>
-                            <Clock className="w-3 h-3" />
-                            <span>{dateInfo.formattedTime}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                              <div
-                                className={`h-2 rounded-full transition-all duration-300 ${
-                                  score >= 90 ? 'bg-green-500' :
-                                  score >= 80 ? 'bg-blue-500' :
-                                  score >= 70 ? 'bg-yellow-500' :
-                                  score >= 50 ? 'bg-orange-500' : 'bg-red-500'
-                                }`}
-                                style={{ width: `${score}%` }}
-                              />
+            <>
+              {/* Accuracy Over Time Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5" />
+                    Accuracy Over Time
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip 
+                        formatter={(value: any, name: any) => [
+                          `${value}%`, 
+                          name === 'accuracy' ? 'Accuracy' : name
+                        ]}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="accuracy" 
+                        stroke="#8884d8" 
+                        strokeWidth={2}
+                        dot={{ fill: '#8884d8', strokeWidth: 2, r: 4 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* Performance Over Time List */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Target className="h-5 w-5" />
+                    Performance Over Time
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {folderQuizResults.map((result, index) => {
+                      const dateInfo = formatQuizDate(result.date);
+                      const score = Math.round((result.correctAnswers / result.totalQuestions) * 100);
+                      return (
+                        <div key={`${result.date.getTime()}-${index}`} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm font-medium">Quiz #{folderQuizResults.length - index}</div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Calendar className="w-3 h-3" />
+                              <span>{dateInfo.formattedDate}</span>
+                              <span>•</span>
+                              <Clock className="w-3 h-3" />
+                              <span>{dateInfo.formattedTime}</span>
                             </div>
-                            <span className={`text-sm font-medium w-12 ${
-                              score >= 90 ? 'text-green-600' :
-                              score >= 80 ? 'text-blue-600' :
-                              score >= 70 ? 'text-yellow-600' :
-                              score >= 50 ? 'text-orange-600' : 'text-red-600'
-                            }`}>
-                              {score}%
-                            </span>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {result.correctAnswers}/{result.totalQuestions}
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div
+                                  className={`h-2 rounded-full transition-all duration-300 ${
+                                    score >= 90 ? 'bg-green-500' :
+                                    score >= 80 ? 'bg-blue-500' :
+                                    score >= 70 ? 'bg-yellow-500' :
+                                    score >= 50 ? 'bg-orange-500' : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${score}%` }}
+                                />
+                              </div>
+                              <span className={`text-sm font-medium w-12 ${
+                                score >= 90 ? 'text-green-600' :
+                                score >= 80 ? 'text-blue-600' :
+                                score >= 70 ? 'text-yellow-600' :
+                                score >= 50 ? 'text-orange-600' : 'text-red-600'
+                              }`}>
+                                {score}%
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {result.correctAnswers}/{result.totalQuestions}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           )}
         </TabsContent>
       </Tabs>
