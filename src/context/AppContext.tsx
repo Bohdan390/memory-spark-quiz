@@ -903,10 +903,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 							model: "gpt-4o-mini",
 							messages: [
 								{
-									role: "system",
+									role: "user",
 									content:
 										`
-											You are an expert quiz generator. For the content below, create 5 high-quality questions with a focus on multiple choice questions. Generate a mix of question types:
+											You are an expert quiz generator. For the content below, create 5 high-quality questions with a focus on multiple choice questions. Do not assume the user is the author or speaker, just describe me — treat the text as anonymous source material. Generate a mix of question types:
 
 											Question Types to Generate:
 											- 3 Multiple Choice questions (with 4 options each)
@@ -949,10 +949,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 											"${JSON.stringify(note)}"
 										`
 								},
-								{
-									role: "user",
-									content: JSON.stringify(note)
-								}
 							]
 						})
 					});
