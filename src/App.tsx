@@ -144,7 +144,7 @@ const App = () => {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="system">
+        <ThemeProvider defaultTheme="light">
           <AppProvider>
             <TooltipProvider>
               <Toaster />
