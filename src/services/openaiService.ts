@@ -3,9 +3,13 @@ import { QuizQuestion, Note } from '@/types/models';
 import EnhancedQuizService from './enhancedQuizService';
 import MemoryTechniquesService from './memoryTechniquesService';
 
-// For now, we'll use a local implementation since we don't have API keys
-// In a real app, you'd initialize with: new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-const openai: OpenAI | null = null; // Placeholder for OpenAI client
+// Initialize OpenAI client if API key is available
+const openai = import.meta.env.VITE_OPENAI_API_KEY 
+  ? new OpenAI({
+      apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+      dangerouslyAllowBrowser: true // Only for demo purposes
+    })
+  : null;
 
 interface GeneratedQuestion {
   question: string;
@@ -103,7 +107,12 @@ function generateSimpleQuiz(notes: Note[]): QuizQuestion[] {
 
 export async function generateQuizWithAI(notes: Note[]): Promise<QuizQuestion[]> {
   try {
-    // Use the enhanced algorithm for better quality
+    // If OpenAI is configured, use it
+    if (openai) {
+      return await generateQuizWithOpenAI(notes);
+    }
+    
+    // Otherwise use the enhanced algorithm
     const enhancedService = new EnhancedQuizService();
     const questions = await enhancedService.generateEnhancedQuiz(notes);
     
@@ -113,16 +122,14 @@ export async function generateQuizWithAI(notes: Note[]): Promise<QuizQuestion[]>
       mnemonics: MemoryTechniquesService.generateMnemonicsForQuestion(question)
     }));
   } catch (error) {
-    console.error('Error generating quiz with enhanced AI:', error);
+    console.error('Error generating quiz with AI:', error);
     
     // Fallback to simple algorithm
     return generateSimpleQuiz(notes);
   }
 }
 
-// Future implementation with actual OpenAI API
-// Commented out for now - uncomment when you have an OpenAI API key
-/*
+// Real OpenAI implementation
 export const generateQuizWithOpenAI = async (notes: Note[]): Promise<QuizQuestion[]> => {
   if (!openai) {
     throw new Error('OpenAI API key not configured');
@@ -130,30 +137,111 @@ export const generateQuizWithOpenAI = async (notes: Note[]): Promise<QuizQuestio
   
   const allContent = notes.map(note => `Title: ${note.title}\nContent: ${note.content}`).join('\n\n---\n\n');
   
-  const prompt = `Based on the following notes, generate 5-10 educational quiz questions...`;
+  const prompt = `Based on the following study notes, generate 8-12 high-quality educational quiz questions. 
+
+Notes:
+${allContent}
+
+Requirements:
+1. Create a mix of question types: multiple choice (40%), fill-in-the-blank (30%), and short answer (30%)
+2. Questions should test understanding, not just memorization
+3. Make questions clear and unambiguous
+4. For multiple choice, provide 4 options with only one correct answer
+5. For fill-in-the-blank, use key terms or concepts
+6. For short answer, ask for explanations or definitions
+
+Format your response as JSON:
+{
+  "questions": [
+    {
+      "type": "multipleChoice|fillInBlank|shortAnswer",
+      "question": "The question text",
+      "answer": "The correct answer",
+      "options": ["option1", "option2", "option3", "option4"] // only for multiple choice
+    }
+  ]
+}
+
+Generate questions that are educational and help with learning the material.`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: import.meta.env.VITE_OPENAI_MODEL || "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
-          content: "You are an educational assistant that creates high-quality quiz questions from study notes."
+          content: "You are an expert educational assistant that creates high-quality quiz questions from study notes. Always respond with valid JSON format."
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.7,
-      max_tokens: 1500,
+      temperature: parseFloat(import.meta.env.VITE_OPENAI_TEMPERATURE || "0.7"),
+      max_tokens: parseInt(import.meta.env.VITE_OPENAI_MAX_TOKENS || "1500"),
     });
 
-    // ... rest of implementation
-    return questions;
+    const response = completion.choices[0]?.message?.content;
+    if (!response) {
+      throw new Error('No response from OpenAI');
+    }
+
+    // Parse the JSON response
+    const parsedResponse = JSON.parse(response);
+    const questions = parsedResponse.questions || [];
+
+    // Convert to QuizQuestion format
+    const now = new Date();
+    return questions.map((q: any, index: number) => ({
+      id: `openai-${Date.now()}-${index}`,
+      folder_id: '',
+      note_id: notes[0]?.id || '',
+      user_id: '',
+      question: q.question,
+      answer: q.answer,
+      type: q.type,
+      options: q.options,
+      
+      // Enhanced question data
+      difficulty: {
+        level: 'intermediate',
+        cognitiveLoad: 'medium',
+        timeEstimate: 30
+      },
+      learningMetrics: {
+        totalReviews: 0,
+        correctStreak: 0,
+        longestStreak: 0,
+        averageResponseTime: 0,
+        difficultyRating: 3,
+        retentionRate: 0,
+        lastAccuracy: 0
+      },
+      
+      // Spaced repetition
+      easeFactor: 2.5,
+      interval: 1,
+      repetitions: 0,
+      lastReviewed: null,
+      nextReviewDate: now,
+      
+      // Advanced features
+      stability: 1,
+      difficulty_sr: 5,
+      retrievability: 0,
+      lapses: 0,
+      suspended: false,
+      buried: false,
+      
+      // Metadata
+      createdAt: now,
+      updatedAt: now,
+      source: 'openai',
+      confidence: 4
+    }));
+
   } catch (error) {
     console.error('Error calling OpenAI API:', error);
-    throw new Error('Failed to generate questions with AI');
+    throw new Error('Failed to generate questions with OpenAI');
   }
-};
-*/ 
+}; 
