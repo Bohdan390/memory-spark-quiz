@@ -106,21 +106,6 @@ const createWindow = async () => {
         console.log(`Fallback: Loading production app from: ${indexPath}`);
         await mainWindow.loadFile(indexPath);
       }
-    } else if (isDebug) {
-      // Debug mode: Load test page first
-      const testPath = path.join(__dirname, '..', 'dist', 'test.html');
-      console.log(`Debug mode: Loading test page from: ${testPath}`);
-      if (fs.existsSync(testPath)) {
-        await mainWindow.loadFile(testPath);
-        console.log('Test page loaded successfully');
-      } else {
-        console.error('Test page not found, trying main app');
-        const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
-        await mainWindow.loadFile(indexPath);
-      }
-      
-      // Open DevTools in debug mode
-      mainWindow.webContents.openDevTools();
     } else {
       // In production, the dist folder is packaged with the app
       // Try multiple possible paths for different build configurations
